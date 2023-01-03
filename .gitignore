@@ -1,0 +1,6 @@
+packages/*/node_modules/
+packages/*/coverage/
+packages/*/dist/
+node_modules/
+resources/*.drawio.*
+.DS_Store

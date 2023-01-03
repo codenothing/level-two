@@ -1,0 +1,32 @@
+version: "3"
+
+services:
+  redis:
+    image: redis
+    container_name: level-two-redis
+    ports:
+      - "127.0.0.1:6380:6379"
+  memcached:
+    image: memcached
+    container_name: level-two-memcached
+    ports:
+      - "127.0.0.1:11222:11211"
+  rabbitmq:
+    image: rabbitmq
+    container_name: level-two-rabbitmq
+    ports:
+      - "127.0.0.1:5673:5672"
+  zookeeper:
+    image: wurstmeister/zookeeper
+    container_name: level-two-zookeeper
+    ports:
+      - "127.0.0.1:2181:2181"
+    platform: linux/amd64
+  kafka:
+    image: wurstmeister/kafka
+    container_name: level-two-kafka
+    ports:
+      - "127.0.0.1:9092:9092"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: localhost
+      KAFKA_ZOOKEEPER_CONNECT: level-two-zookeeper:2181

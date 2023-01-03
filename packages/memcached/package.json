@@ -1,0 +1,55 @@
+{
+  "name": "@level-two/memcached",
+  "version": "1.0.0",
+  "description": "Memcached cache extension of level two",
+  "author": "Corey Hart <corey@codenothing.com>",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/codenothing/level-two.git"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "yarn clean && tsc -p tsconfig.dist.json",
+    "lint": "eslint . --ext .ts",
+    "pretest": "yarn build && yarn lint",
+    "test": "jest --verbose --coverage",
+    "e2e": "../../scripts/docker.sh && yarn e2e-pure",
+    "e2e-pure": "jest --config=e2e/jest.config.js",
+    "prepublish": "yarn test",
+    "benchmark": "ts-node --project tsconfig.benchmark.json benchmark/benchmark.ts"
+  },
+  "keywords": [
+    "cache",
+    "memory",
+    "util",
+    "memcached",
+    "level-two"
+  ],
+  "files": [
+    "dist",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@types/benchmark": "^2.1.2",
+    "@types/jest": "^29.2.1",
+    "@types/memcached": "^2.2.7",
+    "@types/node": "^18.11.9",
+    "@typescript-eslint/eslint-plugin": "^5.42.0",
+    "@typescript-eslint/parser": "^5.42.0",
+    "benchmark": "^2.1.4",
+    "eslint": "^8.26.0",
+    "jest": "^29.2.2",
+    "ts-jest": "^29.0.3",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.8.4"
+  },
+  "dependencies": {
+    "@level-two/core": "1.0.0",
+    "memcached": "^2.2.2"
+  }
+}

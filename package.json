@@ -1,0 +1,18 @@
+{
+  "name": "level-two",
+  "version": "1.0.0",
+  "author": "Corey Hart <corey@codenothing.com>",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "lerna": "^6.1.0"
+  },
+  "scripts": {
+    "lint": "lerna run lint",
+    "test": "lerna run test",
+    "build": "lerna run build",
+    "e2e": "./scripts/docker.sh && lerna run e2e-pure"
+  }
+}
