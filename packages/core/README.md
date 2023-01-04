@@ -119,6 +119,10 @@ Returning `undefined` or an `Error` instance in replace of a result object will 
 
 Amount of time, in milliseconds, until cache entry is stale. This value will be passed to the remote cache instance when setting new values into a worker. Defaults to one minute.
 
+### `ttlLocal`
+
+Amount of time, in milliseconds, until local cache entry is stale. This value applies only to local cache entries, and does not get passed to remote cache instances. Defaults to the value of ttl.
+
 ### `minimumRequestsForCache`
 
 Minimum number of requests that must be made before entry can be added to the local cache. Defaults to none.
