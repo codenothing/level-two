@@ -13,6 +13,7 @@
     "lint": "lerna run lint",
     "test": "lerna run test",
     "build": "lerna run build",
-    "e2e": "./scripts/docker.sh && lerna run e2e-pure"
+    "e2e": "./scripts/docker.sh && lerna run e2e-pure",
+    "release": "lerna publish --no-private"
   }
 }

@@ -51,5 +51,8 @@
     "@level-two/core": "1.0.0",
     "@types/memcached": "^2.2.7",
     "memcached": "^2.2.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

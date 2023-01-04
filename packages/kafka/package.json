@@ -47,5 +47,8 @@
   "dependencies": {
     "@level-two/core": "1.0.0",
     "kafkajs": "^2.2.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -50,5 +50,8 @@
   "dependencies": {
     "@level-two/core": "1.0.0",
     "redis": "^4.5.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
