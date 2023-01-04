@@ -1,6 +1,6 @@
 # LevelTwo - Memcached
 
-A cache extension for [LevelTwo](https://www.npmjs.com/package/@level-two/core). Refer to the [Worker API](../core#worker-api) for function definitions.
+A cache extension for [LevelTwo](https://www.npmjs.com/package/@level-two/core). Refer to the [Worker API](https://www.npmjs.com/package/@level-two/core#worker-api) for function definitions.
 
 ## Usage
 
