@@ -232,6 +232,13 @@ describe("Worker", () => {
       });
 
       test("should immediately cache entries when they are fetched", async () => {
+        const worker = new Worker<MockResultObject, string>(levelTwo, {
+          name: "customer",
+          worker: dataStore.customerFetch,
+          ttl: 30,
+        });
+
+        // Confirm fetching fills the cache
         expect(worker.has("github")).toStrictEqual(false);
         expect(await worker.getMulti([`github`])).toEqual([
           { id: "github", name: "Github" },
@@ -239,11 +246,42 @@ describe("Worker", () => {
         expect(remoteCache.get).toHaveBeenCalledTimes(1);
         expect(worker.has("github")).toStrictEqual(true);
 
+        // Confirm cache entry is used without reaching out externally
         (remoteCache.get as jest.Mock).mockClear();
         expect(await worker.getMulti([`github`])).toEqual([
           { id: "github", name: "Github" },
         ]);
         expect(remoteCache.get).not.toHaveBeenCalled();
+
+        // Confirm cache entries are evicted once they expire
+        await wait(40);
+        expect(worker.has("github")).toStrictEqual(false);
+        expect(await worker.getMulti([`github`])).toEqual([
+          { id: "github", name: "Github" },
+        ]);
+        expect(remoteCache.get).toHaveBeenCalledTimes(1);
+        expect(worker.has("github")).toStrictEqual(true);
+      });
+
+      test("should respect ttlLocal over ttl setting", async () => {
+        const worker = new Worker<MockResultObject, string>(levelTwo, {
+          name: "customer",
+          worker: dataStore.customerFetch,
+          ttl: 1000,
+          ttlLocal: 30,
+        });
+
+        // Confirm fetching fills the cache
+        expect(worker.has("github")).toStrictEqual(false);
+        expect(await worker.getMulti([`github`])).toEqual([
+          { id: "github", name: "Github" },
+        ]);
+        expect(remoteCache.get).toHaveBeenCalledTimes(1);
+        expect(worker.has("github")).toStrictEqual(true);
+
+        // Confirm entry is evicted after ttlLocal timeout
+        await wait(40);
+        expect(worker.has("github")).toStrictEqual(false);
       });
 
       test("should wait to cache entries until the minimum cache requests is hit", async () => {
@@ -309,6 +347,7 @@ describe("Worker", () => {
         });
 
         (worker as any).ttl = 30;
+        (worker as any).ttlLocal = 30;
         jest.spyOn(worker, "emit");
 
         // First fetch should reach out to remote cache

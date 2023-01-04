@@ -12,6 +12,13 @@ export interface CacheSettings {
   ttl?: number;
 
   /**
+   * Amount of time, in milliseconds, until local cache entry is stale.
+   * This value applies only to local cache entries, and does not get
+   * passed to remote cache instances. Defaults to the value of ttl
+   */
+  ttlLocal?: number;
+
+  /**
    * Minimum number of requests that must be made before entry
    * can be added to the local cache. Defaults to none
    */

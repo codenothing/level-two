@@ -117,9 +117,14 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   public readonly name: WorkerIdentifierType;
 
   /**
-   * Time to live for each cache entry
+   * ttl for each cache entry
    */
   public readonly ttl: number;
+
+  /**
+   * ttl for each local cache entry only
+   */
+  public readonly ttlLocal: number;
 
   /**
    * Defined minimum request threshold before entries are add to the local cache
@@ -189,6 +194,10 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
     this.worker = settings.worker;
     this.ttl =
       settings.ttl || levelTwo.settings.cacheDefaults?.ttl || DEFAULT_CACHE_TTL;
+    this.ttlLocal =
+      settings.ttlLocal ||
+      levelTwo.settings.cacheDefaults?.ttlLocal ||
+      this.ttl;
     this.minimumRequestsForCache = mergeSetting(
       settings.minimumRequestsForCache,
       levelTwo.settings.cacheDefaults?.minimumRequestsForCache,
@@ -216,7 +225,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
     );
     this.pruneTimerId = setInterval(
       this.prune.bind(this),
-      this.ttl < PRUNE_LOOP_THRESHOLD ? this.ttl : PRUNE_LOOP_THRESHOLD
+      Math.min(this.ttl, this.ttlLocal, PRUNE_LOOP_THRESHOLD)
     );
     this.burstValve = new BurstValve({
       displayName: `'${this.name}' Worker`,
@@ -493,18 +502,16 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
     const remoteEntries: Required<CacheTouch<IdentifierType>>[] = [];
 
     entries.forEach(({ id, ttl }) => {
-      ttl ||= this.ttl;
-
       ids.push(id);
-      ttls.push(ttl);
+      ttls.push(ttl || this.ttl);
 
       const entry = this.cache.get(id);
       if (entry) {
-        entry.expiresAt = now + ttl;
+        entry.expiresAt = now + (ttl || this.ttlLocal);
         entry.staleAt = entry.expiresAt + this.staleCacheThreshold;
       }
 
-      remoteEntries.push({ id, ttl });
+      remoteEntries.push({ id, ttl: ttl || this.ttl });
     });
 
     await Promise.all([
@@ -865,7 +872,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
     }
 
     // Default to configured ttl
-    ttl ||= this.ttl;
+    ttl ||= this.ttlLocal;
 
     // Clear any request counts before setting
     this.cacheRequests.delete(id);
@@ -907,7 +914,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
       action.ids.forEach((id, index) => {
         const entry = this.cache.get(id);
         if (entry) {
-          entry.expiresAt = now + (action.ttls?.[index] || this.ttl);
+          entry.expiresAt = now + (action.ttls?.[index] || this.ttlLocal);
           entry.staleAt = entry.expiresAt + this.staleCacheThreshold;
         }
       });
@@ -1122,7 +1129,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
               remoteCacheSet.push({
                 id,
                 value,
-                ttl: this.ttl,
+                ttl: ttl || this.ttl,
               });
             }
 
