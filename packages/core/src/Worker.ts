@@ -580,6 +580,19 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   }
 
   /**
+   * Broadcasts action to workers connected through the message broker
+   * @param action Signal to send to other workers
+   * @param ids Unique cache identifiers to apply action to
+   */
+  public async broadcast(action: "upsert" | "delete", ids: IdentifierType[]) {
+    if (!this.messageBroker) {
+      throw new Error("Message broker not configured");
+    }
+
+    await this.publishAction(ids, action);
+  }
+
+  /**
    * Number of valid entries in the cache
    */
   public size(): number {

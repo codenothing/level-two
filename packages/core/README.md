@@ -208,6 +208,10 @@ Shortcut method for checking existence of a single id.
 
 Identifies if the list of unique identifiers exist in either the local cache or the remote cache.
 
+### `broadcast(action: "upsert" | "delete", ids: IdentifierType[])`
+
+Broadcasts action to workers connected through the message broker
+
 ### `size()`
 
 Number of valid entries in the cache.
@@ -282,7 +286,7 @@ Method for listening for actions that should be taken on every LevelTwo process
 
 While workers are a more performant alternative to cache services like redis or memcache, they come with a flaw around persistence in that the cache is fully lost on any code deploy or application restart. If a worker fetch method has a heavy computational expense, this can become costly for cases like a flaky docker container that restarts often and has to re-trigger the fetch on each cycle.
 
-The remote cache provides an extensible interface to keep a worker cache and external cache in sync.
+The remote cache provides an extensible interface to keep a worker cache and external cache in sync. It does not listen to any changes in the remote cache itself, relying on end to end use of LevelTwo for signals to be sent properly for multi server cache updates.
 
 ### `setup(levelTwo: LevelTwo): Promise<void>`
 

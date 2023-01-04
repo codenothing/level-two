@@ -1308,6 +1308,27 @@ describe("Worker", () => {
     });
   });
 
+  describe("broadcast", () => {
+    test("should send signal through message broker", async () => {
+      expect(messageBroker.publish).not.toHaveBeenCalled();
+      await worker.broadcast("upsert", ["github", "npm"]);
+      expect(messageBroker.publish).toHaveBeenCalledTimes(1);
+      expect(messageBroker.publish).toHaveBeenLastCalledWith({
+        action: "upsert",
+        worker: "customer",
+        ids: ["github", "npm"],
+        ttl: undefined,
+      });
+    });
+
+    test("should throw an error if message broker is not configured", async () => {
+      (levelTwo as any).messageBroker = undefined;
+      await expect(
+        worker.broadcast("upsert", ["github", "npm"])
+      ).rejects.toThrow("Message broker not configured");
+    });
+  });
+
   describe("size", () => {
     test("should return number of valid keys", async () => {
       prefillWorker(null, ["github", "npm"]);
