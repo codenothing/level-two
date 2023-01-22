@@ -314,58 +314,6 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   }
 
   /**
-   * Normalized runner for fetching a batch of values from a list of unique
-   * identifiers, merging in the pre-cached results
-   *
-   * @param ids List of unique identifiers to get
-   * @param cachedValues List of cached results mapping to the id
-   * @param staleIds List of cached identifiers that need to be re-fetched
-   * @param raiseExceptions Indicates if exceptions should be thrown instead of returned
-   */
-  private async runBatchFetch(
-    ids: IdentifierType[],
-    cachedValues: (ResultType | undefined)[],
-    staleIds: IdentifierType[],
-    raiseExceptions?: true
-  ): Promise<Array<ResultType | Error | undefined>> {
-    // Only get uncached entries
-    const fetchSet = new Set<IdentifierType>();
-    const results = new Map<IdentifierType, ResultType | Error | undefined>();
-    cachedValues.forEach((value, index) => {
-      const id = ids[index];
-
-      if (value === undefined) {
-        fetchSet.add(id);
-      } else {
-        results.set(id, value);
-      }
-    });
-
-    return new Promise((resolve, reject) => {
-      const fetchIds = Array.from(fetchSet);
-      const batchPromise = raiseExceptions
-        ? this.burstValve.unsafeBatch(fetchIds)
-        : this.burstValve.batch(fetchIds);
-
-      batchPromise
-        .then((batchResults) => {
-          if (batchResults) {
-            fetchIds.forEach((id, index) =>
-              results.set(id, batchResults[index])
-            );
-          }
-
-          resolve(ids.map((id) => results.get(id)));
-        })
-        .catch(reject);
-
-      if (staleIds.length) {
-        this.upsertStaleIds(staleIds);
-      }
-    });
-  }
-
-  /**
    * Exposes data as it becomes available for the unique identifiers requested
    *
    * @param ids List of unique identifiers to get
@@ -1043,6 +991,58 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
       worker: this.name,
       ids: ids,
       ttls,
+    });
+  }
+
+  /**
+   * Normalized runner for fetching a batch of values from a list of unique
+   * identifiers, merging in the pre-cached results
+   *
+   * @param ids List of unique identifiers to get
+   * @param cachedValues List of cached results mapping to the id
+   * @param staleIds List of cached identifiers that need to be re-fetched
+   * @param raiseExceptions Indicates if exceptions should be thrown instead of returned
+   */
+  private async runBatchFetch(
+    ids: IdentifierType[],
+    cachedValues: (ResultType | undefined)[],
+    staleIds: IdentifierType[],
+    raiseExceptions?: true
+  ): Promise<Array<ResultType | Error | undefined>> {
+    // Only get uncached entries
+    const fetchSet = new Set<IdentifierType>();
+    const results = new Map<IdentifierType, ResultType | Error | undefined>();
+    cachedValues.forEach((value, index) => {
+      const id = ids[index];
+
+      if (value === undefined) {
+        fetchSet.add(id);
+      } else {
+        results.set(id, value);
+      }
+    });
+
+    return new Promise((resolve, reject) => {
+      const fetchIds = Array.from(fetchSet);
+      const batchPromise = raiseExceptions
+        ? this.burstValve.unsafeBatch(fetchIds)
+        : this.burstValve.batch(fetchIds);
+
+      batchPromise
+        .then((batchResults) => {
+          if (batchResults) {
+            fetchIds.forEach((id, index) =>
+              results.set(id, batchResults[index])
+            );
+          }
+
+          resolve(ids.map((id) => results.get(id)));
+        })
+        .catch(reject);
+
+      if (staleIds.length) {
+        this.upsertStaleIds(staleIds);
+      }
     });
   }
 

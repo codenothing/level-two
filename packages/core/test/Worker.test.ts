@@ -919,16 +919,14 @@ describe("Worker", () => {
       expect(remoteCache.get).not.toHaveBeenCalled();
     });
 
-    test("should throw errors instead of returning them", async () => {
-      const worker = new Worker<MockResultObject, string>(levelTwo, {
-        name: "customer",
-        worker: async () => {
-          throw new Error(`Mock Fetcher Error`);
-        },
-      });
+    test("should throw fetcher errors instead of returning them", async () => {
+      dataStore.customerFetch.mockRejectedValue(
+        new Error(`Mock Fetcher Error`)
+      );
 
       try {
         await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
+        throw new Error("Should Not Get Here");
       } catch (e) {
         let error = e as Error;
         expect(error).toBeInstanceOf(Error);
@@ -945,6 +943,89 @@ describe("Worker", () => {
         error = error.cause as Error;
         expect(error).toBeInstanceOf(Error);
         expect((error as Error).message).toStrictEqual(`Mock Fetcher Error`);
+      }
+    });
+
+    test("should throw fetcher returned errors", async () => {
+      dataStore.customerFetch.mockImplementation(async (ids) =>
+        ids.map(() => new Error(`Mock Returned Error`))
+      );
+
+      try {
+        await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
+        throw new Error("Should Not Get Here");
+      } catch (e) {
+        expect(e).toBeInstanceOf(Error);
+        expect((e as Error).message).toStrictEqual(
+          `Batch fetcher error for 'customer' Worker`
+        );
+        expect((e as Error).cause).toBeInstanceOf(Error);
+        expect(((e as Error).cause as Error).message).toStrictEqual(
+          `Mock Returned Error`
+        );
+      }
+    });
+
+    test("should throw remoteCache errors instead of returning them", async () => {
+      const worker = new Worker<MockResultObject, string>(levelTwo, {
+        name: "customer",
+        worker: dataStore.customerFetch,
+        ignoreCacheFetchErrors: false,
+      });
+
+      jest
+        .spyOn(remoteCache, "get")
+        .mockRejectedValue(new Error(`Mock Remote Cache Error`));
+
+      try {
+        await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
+        throw new Error("Should Not Get Here");
+      } catch (e) {
+        let error = e as Error;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toStrictEqual(
+          `Batch fetcher error for 'customer' Worker`
+        );
+
+        error = error.cause as Error;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toStrictEqual(
+          `Remote cache.get error`
+        );
+
+        error = error.cause as Error;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toStrictEqual(
+          `Mock Remote Cache Error`
+        );
+      }
+    });
+
+    test("should throw remoteCache returned errors", async () => {
+      const worker = new Worker<MockResultObject, string>(levelTwo, {
+        name: "customer",
+        worker: dataStore.customerFetch,
+        ignoreCacheFetchErrors: false,
+      });
+
+      jest
+        .spyOn(remoteCache, "get")
+        .mockImplementation(async (_worker, ids) =>
+          ids.map(() => new Error(`Mock Cache Return Error`))
+        );
+
+      try {
+        await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
+        throw new Error("Should Not Get Here");
+      } catch (e) {
+        expect(e).toBeInstanceOf(Error);
+        expect((e as Error).message).toStrictEqual(
+          `Batch fetcher error for 'customer' Worker`
+        );
+        expect((e as Error).cause).toBeInstanceOf(Error);
+        expect(((e as Error).cause as Error).message).toStrictEqual(
+          `Mock Cache Return Error`
+        );
       }
     });
   });
