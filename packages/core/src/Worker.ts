@@ -273,47 +273,44 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
     ids: IdentifierType[]
   ): Promise<Array<ResultType | Error | undefined>> {
     // Test local cache to see if all results can be returned immediately
-    const [needsFetch, quickResults, staleIds] = this.getCachedEntries(ids);
+    const [needsFetch, cachedValues, staleIds] = this.getCachedEntries(ids);
     if (!needsFetch) {
       if (staleIds.length) {
         this.upsertStaleIds(staleIds);
       }
 
-      return quickResults;
+      return cachedValues;
     }
 
-    // Only get uncached entries
-    const fetchSet = new Set<IdentifierType>();
-    const results = new Map<IdentifierType, ResultType | Error | undefined>();
-    quickResults.forEach((value, index) => {
-      const id = ids[index];
+    // Run the actual batch fetching, returning any errors as result entries
+    return this.runBatchFetch(ids, cachedValues, staleIds) as Promise<
+      Array<ResultType | Error | undefined>
+    >;
+  }
 
-      if (value === undefined) {
-        fetchSet.add(id);
-      } else {
-        results.set(id, value);
-      }
-    });
-
-    return new Promise((resolve, reject) => {
-      const fetchIds = Array.from(fetchSet);
-      this.burstValve
-        .batch(fetchIds)
-        .then((batchResults) => {
-          if (batchResults) {
-            fetchIds.forEach((id, index) =>
-              results.set(id, batchResults[index])
-            );
-          }
-
-          resolve(ids.map((id) => results.get(id)));
-        })
-        .catch(reject);
-
+  /**
+   * Similar to getMulti, fetches list of values for the identifiers provided, but
+   * raises exceptions when they are found instead of returning errors
+   *
+   * @param ids List of unique identifiers to get
+   */
+  public async getUnsafeMulti(
+    ids: IdentifierType[]
+  ): Promise<Array<ResultType | undefined>> {
+    // Test local cache to see if all results can be returned immediately
+    const [needsFetch, cachedValues, staleIds] = this.getCachedEntries(ids);
+    if (!needsFetch) {
       if (staleIds.length) {
         this.upsertStaleIds(staleIds);
       }
-    });
+
+      return cachedValues;
+    }
+
+    // Run the actual batch fetching, raising any exceptions
+    return this.runBatchFetch(ids, cachedValues, staleIds, true) as Promise<
+      Array<ResultType | undefined>
+    >;
   }
 
   /**
@@ -998,6 +995,58 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   }
 
   /**
+   * Normalized runner for fetching a batch of values from a list of unique
+   * identifiers, merging in the pre-cached results
+   *
+   * @param ids List of unique identifiers to get
+   * @param cachedValues List of cached results mapping to the id
+   * @param staleIds List of cached identifiers that need to be re-fetched
+   * @param raiseExceptions Indicates if exceptions should be thrown instead of returned
+   */
+  private async runBatchFetch(
+    ids: IdentifierType[],
+    cachedValues: (ResultType | undefined)[],
+    staleIds: IdentifierType[],
+    raiseExceptions?: true
+  ): Promise<Array<ResultType | Error | undefined>> {
+    // Only get uncached entries
+    const fetchSet = new Set<IdentifierType>();
+    const results = new Map<IdentifierType, ResultType | Error | undefined>();
+    cachedValues.forEach((value, index) => {
+      const id = ids[index];
+
+      if (value === undefined) {
+        fetchSet.add(id);
+      } else {
+        results.set(id, value);
+      }
+    });
+
+    return new Promise((resolve, reject) => {
+      const fetchIds = Array.from(fetchSet);
+      const batchPromise = raiseExceptions
+        ? this.burstValve.unsafeBatch(fetchIds)
+        : this.burstValve.batch(fetchIds);
+
+      batchPromise
+        .then((batchResults) => {
+          if (batchResults) {
+            fetchIds.forEach((id, index) =>
+              results.set(id, batchResults[index])
+            );
+          }
+
+          resolve(ids.map((id) => results.get(id)));
+        })
+        .catch(reject);
+
+      if (staleIds.length) {
+        this.upsertStaleIds(staleIds);
+      }
+    });
+  }
+
+  /**
    * Valve fetcher process. Looks for data first in the remote cache, then
    * falls back to the worker fetch process
    *
@@ -1024,7 +1073,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
     // Check the remote cache
     else if (ids.length > 0) {
       const remote = this.remoteCache;
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
         let finished = false;
         const remoteResults = new Map<
           IdentifierType,
@@ -1070,54 +1119,60 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
           .then((response) => {
             finished = true;
 
-            // Mapped results from cache fetching
-            if (response instanceof Map) {
-              response.forEach((value, id) => {
-                writeRemoteResult(id, value);
-              });
-            }
-            // Array of results matching the cache ids passed in
-            else if (Array.isArray(response)) {
-              // Enforcing array matching
-              if (response.length !== ids.length) {
-                const error = new Error(
-                  `Remote cache fetch returned inconsistent result length with fetch ids requested`
-                );
-                ids.forEach((id) => writeRemoteResult(id, error));
-              } else {
-                response.forEach((value, index) =>
-                  writeRemoteResult(ids[index], value)
-                );
+            try {
+              // Mapped results from cache fetching
+              if (response instanceof Map) {
+                response.forEach((value, id) => {
+                  writeRemoteResult(id, value);
+                });
+              }
+              // Array of results matching the cache ids passed in
+              else if (Array.isArray(response)) {
+                // Enforcing array matching
+                if (response.length !== ids.length) {
+                  const error = new Error(
+                    `Remote cache fetch returned inconsistent result length with fetch ids requested`
+                  );
+                  ids.forEach((id) => writeRemoteResult(id, error));
+                } else {
+                  response.forEach((value, index) =>
+                    writeRemoteResult(ids[index], value)
+                  );
+                }
+
+                return resolve();
               }
 
-              return resolve();
+              // Ensure all ids are at least written
+              ids.forEach((id) => writeRemoteResult(id, undefined));
+              resolve();
+            } catch (e) {
+              reject(e);
             }
-
-            // Ensure all ids are at least written
-            ids.forEach((id) => writeRemoteResult(id, undefined));
-
-            resolve();
           })
           .catch((e) => {
             finished = true;
 
-            // Ignore exceptions when configured
-            const error = new Error(`Remote cache.get error`, { cause: e });
-            ids.forEach((id) =>
-              writeRemoteResult(
-                id,
-                this.ignoreCacheFetchErrors ? undefined : error
-              )
-            );
-
-            resolve();
+            try {
+              // Ignore exceptions when configured
+              const error = new Error(`Remote cache.get error`, { cause: e });
+              ids.forEach((id) =>
+                writeRemoteResult(
+                  id,
+                  this.ignoreCacheFetchErrors ? undefined : error
+                )
+              );
+              resolve();
+            } catch (e) {
+              reject(e);
+            }
           });
       });
     }
 
     // Run batch fetching process for anything not found in cache
     if (batchIds.length > 0) {
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
         let finished = false;
         const results = new Map<
           IdentifierType,
@@ -1164,44 +1219,50 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
           .then((response) => {
             finished = true;
 
-            // Map of results
-            if (response instanceof Map) {
-              response.forEach((value, id) => {
-                writeResult(id, value);
-              });
-            }
-            // Array of results matching the batch ids passed in
-            else if (Array.isArray(response)) {
-              // Enforcing array matching
-              if (response.length !== batchIds.length) {
-                const error = new Error(
-                  `Worker fetch results length does not match batch id length`
-                );
-                batchIds.forEach((id) => writeResult(id, error));
-              } else {
-                response.forEach((value, index) =>
-                  writeResult(batchIds[index], value)
-                );
+            try {
+              // Map of results
+              if (response instanceof Map) {
+                response.forEach((value, id) => {
+                  writeResult(id, value);
+                });
+              }
+              // Array of results matching the batch ids passed in
+              else if (Array.isArray(response)) {
+                // Enforcing array matching
+                if (response.length !== batchIds.length) {
+                  const error = new Error(
+                    `Worker fetch results length does not match batch id length`
+                  );
+                  batchIds.forEach((id) => writeResult(id, error));
+                } else {
+                  response.forEach((value, index) =>
+                    writeResult(batchIds[index], value)
+                  );
+                }
+
+                return resolve();
               }
 
-              return resolve();
+              // Ensure all ids are accounted for
+              batchIds.forEach((id) => writeResult(id, undefined));
+              resolve();
+            } catch (e) {
+              reject(e);
             }
-
-            // Ensure all ids are accounted for
-            batchIds.forEach((id) => writeResult(id, undefined));
-
-            resolve();
           })
           .catch((e) => {
             finished = true;
 
-            // Write error to every batch id
-            const error = new Error(`Worker fetch fetch process error`, {
-              cause: e,
-            });
-            batchIds.forEach((id) => writeResult(id, error));
-
-            resolve();
+            try {
+              // Write error to every batch id
+              const error = new Error(`Worker fetch process error`, {
+                cause: e,
+              });
+              batchIds.forEach((id) => writeResult(id, error));
+              resolve();
+            } catch (e) {
+              reject(e);
+            }
           });
       });
     }

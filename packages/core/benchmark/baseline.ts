@@ -37,6 +37,17 @@ suite.add(`get`, {
   });
 });
 
+[1, 5, 25, 50, 100].forEach((idCcount) => {
+  const ids = generateIds(idCcount);
+  suite.add(`getUnsafeMulti ${ids.length} ids`, {
+    defer: true,
+    fn: async (deferred: Benchmark.Deferred) => {
+      await worker.getUnsafeMulti(ids);
+      deferred.resolve();
+    },
+  });
+});
+
 suite
   .on("cycle", (event: Benchmark.Event) => {
     console.log(String(event.target));

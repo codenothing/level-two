@@ -164,6 +164,10 @@ Gets a a list of values for the identifiers provided. First attempts to find val
 
 Identifiers not found in local cache are then run through a BurstValve to batch fetch from remote cache or worker process. This means that there will only be one active request per identifier for the given worker.
 
+### `getUnsafeMulti(ids: IdentifierType[])`
+
+Similar to getMulti, fetches list of values for the identifiers provided, but raises exceptions when they are found instead of returning errors
+
 ### `stream(ids: IdentifierType[], streamResultCallback: (id: IdentifierType, result: ResultType) => Promise<void>)`
 
 Exposes data as it becomes available for the unique identifiers requested

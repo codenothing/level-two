@@ -83,6 +83,21 @@ const worker = levelTwo.createWorker<Customer, number>(
   });
 });
 
+// LevelTwo - Unsafe
+[1, 5, 25, 50, customers.size].forEach((idCount) => {
+  const ids = Array.from(customers.values())
+    .slice(0, idCount)
+    .map((customer) => customer.id);
+
+  suite.add(`Level Two - Unsafe Fetch ${idCount} entries`, {
+    defer: true,
+    fn: async (deferred: Benchmark.Deferred) => {
+      await worker.getUnsafeMulti(ids);
+      deferred.resolve();
+    },
+  });
+});
+
 suite
   .on("cycle", (event: Benchmark.Event) => {
     if (event.target.name?.startsWith("Level Two - Fetch 1 ")) {
