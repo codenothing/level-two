@@ -1,6 +1,6 @@
 {
   "name": "@level-two/core",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A distributed in-process cache",
   "author": "Corey Hart <corey@codenothing.com>",
   "main": "./dist/index.js",
