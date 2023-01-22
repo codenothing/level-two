@@ -404,7 +404,7 @@ describe("Worker", () => {
 
         prefillWorker(worker);
 
-        // Wait for tll to expire, but still be within stale threshold
+        // Wait for ttl to expire, but still be within stale threshold
         await wait(50);
 
         // Confirm immediate cache is returned on the first call
@@ -819,7 +819,7 @@ describe("Worker", () => {
         const [error1, error2] = await worker.getMulti([`github`, `circleci`]);
         expect(error1).toBeInstanceOf(Error);
         expect((error1 as Error).message).toStrictEqual(
-          `Worker fetch fetch process error`
+          `Worker fetch process error`
         );
         expect((error1 as Error).cause).toBeInstanceOf(Error);
         expect(((error1 as Error).cause as Error).message).toStrictEqual(
@@ -854,6 +854,98 @@ describe("Worker", () => {
           worker.getMulti([`github`]);
         });
       });
+    });
+  });
+
+  describe("getUnsafeMulti", () => {
+    test("should request multiple identifiers at the same time", async () => {
+      expect(
+        await worker.getUnsafeMulti([`github`, `circleci`, `npm`])
+      ).toEqual([
+        { id: "github", name: "Github" },
+        { id: "circleci", name: "CircleCI" },
+        { id: "npm", name: "NPM" },
+      ]);
+      expect(remoteCache.get).toHaveBeenCalledTimes(1);
+      expect(remoteCache.get).toHaveBeenLastCalledWith(
+        `customer`,
+        [`github`, `circleci`, `npm`],
+        expect.any(Function)
+      );
+      expect(dataStore.customerFetch).toHaveBeenCalledTimes(1);
+      expect(dataStore.customerFetch).toHaveBeenLastCalledWith(
+        [`github`, `circleci`, `npm`],
+        expect.any(Function)
+      );
+    });
+
+    test("should use cached results", async () => {
+      prefillWorker(worker);
+      expect(await worker.getUnsafeMulti([`github`, `npm`])).toEqual([
+        { id: "github", name: "Github" },
+        { id: "npm", name: "NPM" },
+      ]);
+      expect(remoteCache.get).not.toHaveBeenCalled();
+      expect(dataStore.customerFetch).not.toHaveBeenCalled();
+    });
+
+    test("should return cached entries for stale data, while triggering a background fetch", async () => {
+      const worker = new Worker<MockResultObject, string>(levelTwo, {
+        name: "customer",
+        worker: dataStore.customerFetch,
+        ttl: 25,
+        staleCacheThreshold: 1000,
+      });
+
+      prefillWorker(worker);
+
+      // Wait for ttl to expire, but still be within stale threshold
+      await wait(50);
+
+      // Confirm immediate cache is returned on the first call
+      (remoteCache.get as jest.Mock).mockResolvedValue([
+        { id: "github", name: "Github 2000" },
+      ]);
+      expect(await worker.getUnsafeMulti([`github`])).toEqual([
+        { id: "github", name: "Github" },
+      ]);
+      expect(remoteCache.get).toHaveBeenCalledTimes(1);
+
+      // Confirm second call returns the updated cache value
+      (remoteCache.get as jest.Mock).mockClear();
+      expect(await worker.getUnsafeMulti([`github`])).toEqual([
+        { id: "github", name: "Github 2000" },
+      ]);
+      expect(remoteCache.get).not.toHaveBeenCalled();
+    });
+
+    test("should throw errors instead of returning them", async () => {
+      const worker = new Worker<MockResultObject, string>(levelTwo, {
+        name: "customer",
+        worker: async () => {
+          throw new Error(`Mock Fetcher Error`);
+        },
+      });
+
+      try {
+        await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
+      } catch (e) {
+        let error = e as Error;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toStrictEqual(
+          `Batch fetcher error for 'customer' Worker`
+        );
+
+        error = error.cause as Error;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toStrictEqual(
+          `Worker fetch process error`
+        );
+
+        error = error.cause as Error;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toStrictEqual(`Mock Fetcher Error`);
+      }
     });
   });
 

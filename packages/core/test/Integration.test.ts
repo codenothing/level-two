@@ -122,7 +122,7 @@ describe("Integration", () => {
     (messageBroker.publish as jest.Mock).mockResolvedValue(undefined);
     dataStore.throwErrors = true;
     await expect(dataStore.customerWorker.get(`github`)).rejects.toThrow(
-      `Worker fetch fetch process error`
+      `Worker fetch process error`
     );
 
     const [github, circleci] = await dataStore.customerWorker.getMulti([
@@ -130,9 +130,7 @@ describe("Integration", () => {
       `circleci`,
     ]);
     expect(github).toBeInstanceOf(Error);
-    expect((github as Error).message).toEqual(
-      `Worker fetch fetch process error`
-    );
+    expect((github as Error).message).toEqual(`Worker fetch process error`);
     expect((github as Error).cause).toBeInstanceOf(Error);
     expect(((github as Error).cause as Error).message).toEqual(
       `Invalid customer fetch`
