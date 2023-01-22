@@ -315,7 +315,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
 
   /**
    * Normalized runner for fetching a batch of values from a list of unique
-   * identifiers, merging in the precached results
+   * identifiers, merging in the pre-cached results
    *
    * @param ids List of unique identifiers to get
    * @param cachedValues List of cached results mapping to the id
