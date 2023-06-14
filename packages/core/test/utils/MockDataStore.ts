@@ -13,6 +13,7 @@ export class MockDataStore {
   public productProcess: WorkerFetchProcess<MockResultObject, string>;
   public productWorker: Worker<MockResultObject, string>;
   public throwErrors = false;
+  public returnNoResults = false;
   public data: Record<string, MockResultObject> = {
     "customer:github": { id: "github", name: "Github" },
     "customer:circleci": { id: "circleci", name: "CircleCI" },
@@ -32,6 +33,8 @@ export class MockDataStore {
       await wait();
       if (this.throwErrors) {
         throw new Error(`Invalid customer fetch`);
+      } else if (this.returnNoResults) {
+        return ids.map(() => undefined);
       }
 
       return ids.map((id) => this.data[`customer:${id}`]);
@@ -49,12 +52,12 @@ export class MockDataStore {
       for (const id of ids) {
         await wait();
         const key = `product:${id}`;
-        if (this.data[key]) {
-          earlyWrite(id, this.data[key]);
-        }
-
         if (this.throwErrors) {
           throw new Error(`Invalid product fetch`);
+        } else if (this.returnNoResults) {
+          earlyWrite(id, undefined);
+        } else if (this.data[key]) {
+          earlyWrite(id, this.data[key]);
         }
       }
     };

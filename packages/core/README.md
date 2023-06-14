@@ -113,6 +113,22 @@ There are three formats for returning data to the worker to be cached:
 
 Returning `undefined` or an `Error` instance in replace of a result object will signal to the worker that nothing should be cached
 
+## Single Key Workers
+
+Dynamic application wide data sets can be fetched by assigning a worker to a single key.
+
+```ts
+// Create a worker for getting list of app wide feature flags
+const worker = levelTwo.createSingleKeyWorker("feature-flags", async () => {
+  return await mysql.query(`SELECT key, value FROM feature_flags`);
+});
+
+// Service method for getting a feature flags
+export async function getFeatureFlags(): Promise<FeatureFlags> {
+  return await worker.get();
+}
+```
+
 ## Cache Options
 
 ### `ttl`
@@ -158,6 +174,10 @@ Namespaced workers are used to fetch and cache data for a specific object type. 
 
 Shortcut method for batch fetching a single object. Any error is thrown instead of returned
 
+### `getRequired(id: IdentifierType)`
+
+Shortcut method for batch fetching a single required object. Any error is thrown instead of returned, and exception is raised if no value is found
+
 ### `getMulti(ids: IdentifierType[])`
 
 Gets a a list of values for the identifiers provided. First attempts to find values from the local cache, then falls back to remote cache if defined, and finally pulls from the worker process.
@@ -168,6 +188,10 @@ Identifiers not found in local cache are then run through a BurstValve to batch 
 
 Similar to getMulti, fetches list of values for the identifiers provided, but raises exceptions when they are found instead of returning errors
 
+### `getRequiredMulti(ids: IdentifierType[])`
+
+Similar to getMulti, fetches list of values for the identifiers provided, but raises exceptions when values are not found for any id
+
 ### `stream(ids: IdentifierType[], streamResultCallback: (id: IdentifierType, result: ResultType) => Promise<void>)`
 
 Exposes data as it becomes available for the unique identifiers requested
@@ -176,9 +200,17 @@ Exposes data as it becomes available for the unique identifiers requested
 
 Shortcut method for upserting a single object. Any error is thrown instead of returned.
 
+### `upsertRequired(id: IdentifierType, skipRemoteCache?: boolean)`
+
+Shortcut method for upserting a single required object. Any error is thrown instead of returned, and exception raised for any value not found
+
 ### `upsertMulti(ids: IdentifierType[], skipRemoteCache?: boolean)`
 
 Bypasses local cache and burst valve, fetching raw data directly from the remote cache or fetcher process. When skipRemoteCache is enabled, results are pulled directly from the fetcher process and set back into the remote cache (successful fetches only).
+
+### `upsertRequiredMulti(ids: IdentifierType[], skipRemoteCache?: boolean)`
+
+Similar to upsertMulti, with the addition that an error is thrown if no data could be found remotely
 
 ### `set(id: IdentifierType, value: ResultType, ttl?: number)`
 
@@ -263,6 +295,58 @@ Deletes any expired (past stale) entries from the local cache, as well as any ex
 ### `clear()`
 
 Clears local caches of all entries.
+
+## SingleKeyWorker
+
+Cache worker for a single key entry
+
+### `get()`
+
+Fetches single cached value for this single key worker, throwing any errors that are found
+
+### `getRequired()`
+
+Fetches single cached value for this single key worker, throwing any returned errors and raising exception if value could not be found
+
+### `upsert(skipRemoteCache?: boolean)`
+
+Force updates local cache with value saved in remote cache or fetcher process
+
+### `upsertRequired(skipRemoteCache?: boolean)`
+
+Force updates local cache with value saved in remote cache or fetcher process, throwing an error if value could not be found
+
+### `set(value: ResultType, ttl?: number)`
+
+Sets cache entry in both remote and local caches, then signals to all other systems to update their locals
+
+### `delete()`
+
+Deletes cache entry in both remote and local caches, then signals to all other systems to delete cache entry from their locals if it exists
+
+### `touch(ttl?: number)`
+
+Extending ttl on the value. Signal will be sent to all workers, and remote cache will be touched in parallel
+
+### `exists(skipLocalCache?: boolean)`
+
+Identifies if the the value exist in either the local cache or the remote cache
+
+### `broadcast(action: "upsert" | "delete")`
+
+Broadcasts action to workers connected through the message broker
+
+### `has()`
+
+Indicates if the value exists in the local cache only
+
+### `prefill(value: ResultType, ttl?: number)`
+
+Inserts the provided list of entries into the local cache only, overriding any existing entries
+
+### `peek()`
+
+Returns local cache entry if it exists, undefined if it does not
 
 ## Message Broker (Keeping Workers in Sync)
 

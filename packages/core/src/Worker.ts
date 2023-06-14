@@ -13,14 +13,15 @@ import {
 } from "./interfaces";
 import type { LevelTwo } from "./LevelTwo";
 
-// Run prune every minute by default
-const PRUNE_LOOP_THRESHOLD = 1000 * 60;
+// Run background tasks every minute by default
+const BACKGROUND_TASK_LOOP_THRESHOLD = 1000 * 60;
 
 // Internal cache entry interface
 interface InternalCacheEntry<ResultType> {
   expiresAt: number;
   staleAt: number;
   value: ResultType;
+  staleHits: number;
 }
 
 // Shortcut for picking which setting to use (global, local, or default)
@@ -37,6 +38,17 @@ const mergeSetting = <SettingType>(
     return defaultValue;
   }
 };
+
+/**
+ * Only wraps non Error instances in an exception
+ *
+ * @param error Unknown error raised
+ * @param messagePrefix Prefix string when error is not an exception
+ */
+const optionallyWrapError = (error: unknown, messagePrefix: string): Error =>
+  error instanceof Error
+    ? error
+    : new Error(`${messagePrefix}: ${error}`, { cause: error });
 
 /**
  * Worker configuration
@@ -107,7 +119,12 @@ export interface Worker<ResultType, IdentifierType> {
 /**
  * Cache worker for fetching data on a namespace
  */
-export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
+export class Worker<
+    ResultType,
+    IdentifierType,
+    WorkerIdentifierType = string,
+    SingleKeyIdentifierType = string
+  >
   extends EventEmitter
   implements Iterable<[IdentifierType, ResultType]>
 {
@@ -162,7 +179,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   /**
    * Reference to the parent levelTwo instance
    */
-  private levelTwo: LevelTwo<WorkerIdentifierType>;
+  private levelTwo: LevelTwo<WorkerIdentifierType, SingleKeyIdentifierType>;
 
   /**
    * Private BurstValve for limiting concurrency per unique identifier
@@ -180,12 +197,17 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   private cacheRequests = new Map<IdentifierType, number[]>();
 
   /**
-   * Prune loop timer
+   * Background task loop timer
    */
-  private pruneTimerId?: NodeJS.Timer;
+  private backgroundTaskTimerId?: NodeJS.Timer;
 
+  /**
+   * Cache worker for fetching data on a namespace
+   * @param levelTwo Reference to the parent levelTwo instance
+   * @param settings Configuration settings for the worker
+   */
   constructor(
-    levelTwo: LevelTwo<WorkerIdentifierType>,
+    levelTwo: LevelTwo<WorkerIdentifierType, SingleKeyIdentifierType>,
     settings: WorkerSettings<ResultType, IdentifierType, WorkerIdentifierType>
   ) {
     super();
@@ -223,9 +245,14 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
       levelTwo.settings.cacheDefaults?.ignoreCacheFetchErrors,
       false
     );
-    this.pruneTimerId = setInterval(
-      this.prune.bind(this),
-      Math.min(this.ttl, this.ttlLocal, PRUNE_LOOP_THRESHOLD)
+    this.backgroundTaskTimerId = setInterval(
+      this.backgroundTaskRunner.bind(this),
+      Math.min(
+        this.ttl,
+        this.ttlLocal,
+        this.staleCacheThreshold || BACKGROUND_TASK_LOOP_THRESHOLD,
+        BACKGROUND_TASK_LOOP_THRESHOLD
+      )
     );
     this.burstValve = new BurstValve({
       displayName: `'${this.name}' Worker`,
@@ -235,9 +262,9 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
     this.levelTwo.on("action", this.incomingAction.bind(this));
 
     this.levelTwo.on("teardown", () => {
-      if (this.pruneTimerId) {
-        clearInterval(this.pruneTimerId);
-        this.pruneTimerId = undefined;
+      if (this.backgroundTaskTimerId) {
+        clearInterval(this.backgroundTaskTimerId);
+        this.backgroundTaskTimerId = undefined;
       }
     });
   }
@@ -249,13 +276,17 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
    * @param id Unique identifier to get
    */
   public async get(id: IdentifierType): Promise<ResultType | undefined> {
-    const result = await this.getMulti([id]);
+    return (await this.getUnsafeMulti([id]))[0];
+  }
 
-    if (result[0] instanceof Error) {
-      throw result[0];
-    } else {
-      return result[0];
-    }
+  /**
+   * Shortcut method for batch fetching a single required object. Any error is thrown
+   * instead of returned, and exception is raised if no value is found
+   *
+   * @param id Unique identifier to get
+   */
+  public async getRequired(id: IdentifierType): Promise<ResultType> {
+    return (await this.getRequiredMulti([id]))[0];
   }
 
   /**
@@ -272,20 +303,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   public async getMulti(
     ids: IdentifierType[]
   ): Promise<Array<ResultType | Error | undefined>> {
-    // Test local cache to see if all results can be returned immediately
-    const [needsFetch, cachedValues, staleIds] = this.getCachedEntries(ids);
-    if (!needsFetch) {
-      if (staleIds.length) {
-        this.upsertStaleIds(staleIds);
-      }
-
-      return cachedValues;
-    }
-
-    // Run the actual batch fetching, returning any errors as result entries
-    return this.runBatchFetch(ids, cachedValues, staleIds) as Promise<
-      Array<ResultType | Error | undefined>
-    >;
+    return this.getCacheEntries(ids) || this.runBatchFetch(ids);
   }
 
   /**
@@ -297,20 +315,17 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   public async getUnsafeMulti(
     ids: IdentifierType[]
   ): Promise<Array<ResultType | undefined>> {
-    // Test local cache to see if all results can be returned immediately
-    const [needsFetch, cachedValues, staleIds] = this.getCachedEntries(ids);
-    if (!needsFetch) {
-      if (staleIds.length) {
-        this.upsertStaleIds(staleIds);
-      }
+    return this.getCacheEntries(ids) || this.runBatchFetch(ids, "unsafe");
+  }
 
-      return cachedValues;
-    }
-
-    // Run the actual batch fetching, raising any exceptions
-    return this.runBatchFetch(ids, cachedValues, staleIds, true) as Promise<
-      Array<ResultType | undefined>
-    >;
+  /**
+   * Similar to getMulti, fetches list of values for the identifiers provided, but
+   * raises exceptions when values are not found for any id
+   *
+   * @param ids List of unique identifiers to get
+   */
+  public async getRequiredMulti(ids: IdentifierType[]): Promise<ResultType[]> {
+    return this.getCacheEntries(ids) || this.runBatchFetch(ids, "required");
   }
 
   /**
@@ -326,32 +341,19 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
       result: ResultType | Error | undefined
     ) => Promise<void>
   ): Promise<void> {
-    const uniqueIds = [...new Set(ids)];
-    const fetchSet = new Set<IdentifierType>();
+    const { results, fetchIds } = this.getConfiguredCacheEntries(ids);
     const streamPromises: Promise<void>[] = [];
-    const [, quickResults, staleIds] = this.getCachedEntries(uniqueIds);
 
-    // Auto signal cached results, collect uncached ids
-    quickResults.forEach((value, index) => {
-      const id = uniqueIds[index];
-
-      if (value === undefined) {
-        fetchSet.add(id);
-      } else {
-        streamPromises.push(streamResultCallback(id, value));
-      }
-    });
+    // Trigger callback for cached values
+    results.forEach((value, id) =>
+      streamPromises.push(streamResultCallback(id, value))
+    );
 
     // Trigger stream fetching through burst valve for any uncached items
-    if (fetchSet.size) {
+    if (fetchIds.size) {
       streamPromises.push(
-        this.burstValve.stream(Array.from(fetchSet), streamResultCallback)
+        this.burstValve.stream(Array.from(fetchIds), streamResultCallback)
       );
-    }
-
-    // Kick off any stale id fetching
-    if (staleIds.length) {
-      this.upsertStaleIds(staleIds);
     }
 
     // Wait for all stream result callbacks to complete
@@ -379,6 +381,20 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   }
 
   /**
+   * Shortcut method for upserting a single required object. Any error is thrown
+   * instead of returned, and exception raised for any value not found
+   *
+   * @param id Unique identifier to fetch
+   * @param skipRemoteCache Bypasses remote cache
+   */
+  public async upsertRequired(
+    id: IdentifierType,
+    skipRemoteCache?: boolean
+  ): Promise<ResultType | undefined> {
+    return (await this.upsertRequiredMulti([id], skipRemoteCache))[0];
+  }
+
+  /**
    * Bypasses local cache and burst valve, fetching raw data directly from the
    * remote cache or fetcher process. When skipRemoteCache is enabled, results
    * are pulled directly from the fetcher process and set back into the remote
@@ -400,6 +416,42 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
     );
 
     return ids.map((id) => results.get(id));
+  }
+
+  /**
+   * Similar to upsertMulti, with the addition that an error is thrown
+   * if no data could be found remotely
+   *
+   * @param ids List of unique identifiers to fetch
+   * @param skipRemoteCache Bypasses remote cache
+   */
+  public async upsertRequiredMulti(
+    ids: IdentifierType[],
+    skipRemoteCache?: boolean
+  ): Promise<Array<ResultType>> {
+    const missingIds: IdentifierType[] = [];
+    const filtered = (await this.upsertMulti(ids, skipRemoteCache)).filter(
+      (value, index): value is ResultType => {
+        if (value instanceof Error) {
+          throw value;
+        } else if (value === undefined) {
+          missingIds.push(ids[index]);
+          return false;
+        } else {
+          return true;
+        }
+      }
+    );
+
+    if (missingIds.length) {
+      throw new Error(
+        `Missing upserted values for '${missingIds.join(",")}' in '${
+          this.name
+        }' worker`
+      );
+    }
+
+    return filtered;
   }
 
   /**
@@ -581,7 +633,10 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
    * @param action Signal to send to other workers
    * @param ids Unique cache identifiers to apply action to
    */
-  public async broadcast(action: "upsert" | "delete", ids: IdentifierType[]) {
+  public async broadcast(
+    action: "upsert" | "delete",
+    ids: IdentifierType[]
+  ): Promise<void> {
     if (!this.messageBroker) {
       throw new Error("Message broker not configured");
     }
@@ -709,14 +764,6 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
       }
     });
 
-    // Clean out stale cache entries
-    this.cache.forEach((entry, id) => {
-      if (entry.staleAt < now) {
-        this.cache.delete(id);
-        this.emit("evict", id);
-      }
-    });
-
     // Reduce number of keys to below max count
     if (this.maximumCacheKeys > 0 && this.cache.size > this.maximumCacheKeys) {
       Array.from(this.cache)
@@ -750,60 +797,112 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
   /**
    * Shortcut to access remote cache integration
    */
-  private get remoteCache(): RemoteCache<WorkerIdentifierType> | undefined {
+  private get remoteCache():
+    | RemoteCache<WorkerIdentifierType, SingleKeyIdentifierType>
+    | undefined {
     return this.levelTwo.remoteCache;
   }
 
   /**
    * Shortcut to access message broker integration
    */
-  private get messageBroker(): MessageBroker<WorkerIdentifierType> | undefined {
+  private get messageBroker():
+    | MessageBroker<WorkerIdentifierType, SingleKeyIdentifierType>
+    | undefined {
     return this.levelTwo.messageBroker;
   }
 
   /**
-   * Fetches and caches stale ids in the background
-   * @param ids List of unique identifiers to fetch in parallel
+   * Runs background tasks
    */
-  private upsertStaleIds(ids: IdentifierType[]): void {
-    this.burstValve.batch(ids).catch((e) => {
-      this.emit(
-        "error",
-        new Error(
-          `Error during stale cache background fetch for ids "${ids.join(
-            ","
-          )}"`,
-          { cause: e }
-        )
-      );
+  private backgroundTaskRunner(): void {
+    const now = Date.now();
+
+    // Toss any fully expired content
+    this.prune();
+
+    // Clean out stale cache entries
+    const staleIds: IdentifierType[] = [];
+    this.cache.forEach((entry, id) => {
+      if (entry.staleAt < now) {
+        this.cache.delete(id);
+        this.emit("evict", id);
+      } else if (entry.expiresAt < now && entry.staleHits > 0) {
+        staleIds.push(id);
+        entry.staleHits = 0;
+      }
     });
+
+    // Refresh stale data
+    if (staleIds.length) {
+      this.burstValve.batch(staleIds).catch((e) => {
+        this.emit(
+          "error",
+          optionallyWrapError(
+            e,
+            `Error during stale cache background fetch for ids "${staleIds.join(
+              ","
+            )}"`
+          )
+        );
+      });
+    }
   }
 
   /**
-   * Gets all locally cached valid entries for the provided list of ids
+   * Returns a list of locally cached values. Nothing is returned if any
+   * value is invalid or does not exist. This will direct the caller to
+   * use external fetching logic.
    *
-   * Note*: This method has some micro optimizations for faster local
-   * cache retrieval. As such, readability is a lower priority.
+   * Note*: This is the only method that is optimized for micro performance
+   * over readability, as it has the potential to be local only.
    *
-   * All performance suggestions for this method and getMulti
-   * are happily requested.
+   * @param ids List of unique identifiers to get
+   */
+  private getCacheEntries(ids: IdentifierType[]): ResultType[] | void {
+    const now = Date.now();
+    const idLength = ids.length;
+    const results: ResultType[] = new Array(idLength);
+
+    for (let index = -1; ++index < idLength; ) {
+      const entry = this.cache.get(ids[index]);
+
+      if (!entry || entry.staleAt < now) {
+        // Clean any stale hits that might have been incurred,
+        // these will be handled by getConfiguredCacheEntries
+        while (--index > -1) {
+          const entry = this.cache.get(ids[index]);
+          if (entry && entry.expiresAt < now) {
+            entry.staleHits--;
+          }
+        }
+        return;
+      } else if (entry.expiresAt < now) {
+        entry.staleHits++;
+      }
+
+      results[index] = entry.value;
+    }
+
+    return results;
+  }
+
+  /**
+   * Converts list of identifiers to optional cache values to identify ids
+   * that need to be remotely fetched
    *
    * @param ids Unique cache identifiers
    */
-  private getCachedEntries(ids: IdentifierType[]): [
-    // Indicates if a fetch request is required
-    boolean,
-    // List of cached results mapping to the id
-    (ResultType | undefined)[],
-    // List of stale IDs
-    IdentifierType[]
-  ] {
+  private getConfiguredCacheEntries(ids: IdentifierType[]): {
+    results: Map<IdentifierType, ResultType | Error | undefined>;
+    fetchIds: Set<IdentifierType>;
+  } {
     const now = Date.now();
-    const staleIds: IdentifierType[] = [];
-    let needsFetch = false;
+    const results = new Map<IdentifierType, ResultType | Error | undefined>();
+    const fetchIds = new Set<IdentifierType>();
 
     // Find all valid local cache entries
-    const quickResults: (ResultType | undefined)[] = ids.map((id) => {
+    ids.forEach((id) => {
       const entry = this.cache.get(id);
 
       // Cache entry exists, see if it can be used
@@ -813,23 +912,19 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
         if (entry.staleAt < now) {
           this.cache.delete(id);
           this.emit("evict", id);
-          needsFetch = true;
 
           // Reset cache request counts if that is in use
           if (this.minimumRequestsForCache > 0) {
             this.cacheRequests.set(id, [now]);
           }
         } else {
-          // Add stale id to be fetched
-          if (entry.expiresAt < now && !this.burstValve.isActive(id)) {
-            staleIds.push(id);
+          if (entry.expiresAt < now) {
+            entry.staleHits++;
           }
 
-          return entry.value;
+          return results.set(id, entry.value);
         }
       } else {
-        needsFetch = true;
-
         // Cache miss, increment request count if configured
         if (this.minimumRequestsForCache > 0) {
           const requests = this.cacheRequests.get(id);
@@ -845,9 +940,11 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
           }
         }
       }
+
+      fetchIds.add(id);
     });
 
-    return [needsFetch, quickResults, staleIds];
+    return { results, fetchIds };
   }
 
   /**
@@ -890,6 +987,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
       value,
       expiresAt: now + ttl,
       staleAt: now + ttl + this.staleCacheThreshold,
+      staleHits: 0,
     });
 
     // Resize local cache
@@ -999,51 +1097,76 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
    * identifiers, merging in the pre-cached results
    *
    * @param ids List of unique identifiers to get
-   * @param cachedValues List of cached results mapping to the id
-   * @param staleIds List of cached identifiers that need to be re-fetched
-   * @param raiseExceptions Indicates if exceptions should be thrown instead of returned
+   */
+  private async runBatchFetch(
+    ids: IdentifierType[]
+  ): Promise<Array<ResultType | Error | undefined>>;
+
+  /**
+   * Normalized runner for fetching a batch of values from a list of unique
+   * identifiers, merging in the pre-cached results and throwing any errors that
+   *
+   * @param ids List of unique identifiers to get
+   * @param operation Specific operation to run batch fetching with (throwing returned errors or missing values)
    */
   private async runBatchFetch(
     ids: IdentifierType[],
-    cachedValues: (ResultType | undefined)[],
-    staleIds: IdentifierType[],
-    raiseExceptions?: true
-  ): Promise<Array<ResultType | Error | undefined>> {
-    // Only get uncached entries
-    const fetchSet = new Set<IdentifierType>();
-    const results = new Map<IdentifierType, ResultType | Error | undefined>();
-    cachedValues.forEach((value, index) => {
-      const id = ids[index];
+    operation: "unsafe"
+  ): Promise<Array<ResultType | undefined>>;
 
+  /**
+   * Normalized runner for fetching a batch of values from a list of unique
+   * identifiers, merging in the pre-cached results and throwing if
+   *
+   * @param ids List of unique identifiers to get
+   * @param operation Specific operation to run batch fetching with (throwing returned errors or missing values)
+   */
+  private async runBatchFetch(
+    ids: IdentifierType[],
+    operation: "required"
+  ): Promise<Array<ResultType>>;
+
+  /**
+   * Normalized runner for fetching a batch of values from a list of unique
+   * identifiers, merging in the pre-cached results
+   *
+   * @param ids List of unique identifiers to get
+   * @param operation Specific operation to run batch fetching with (throwing returned errors or missing values)
+   */
+  private async runBatchFetch(
+    ids: IdentifierType[],
+    operation?: "unsafe" | "required"
+  ): Promise<Array<ResultType | Error | undefined>> {
+    const { results, fetchIds } = this.getConfiguredCacheEntries(ids);
+
+    // Only fetch unique uncached entries
+    const fetchIdsArray = Array.from(fetchIds);
+    const batchResults = operation
+      ? await this.burstValve.unsafeBatch(fetchIdsArray)
+      : await this.burstValve.batch(fetchIdsArray);
+
+    // Fill in the rest of the results
+    const missingIds: IdentifierType[] = [];
+    fetchIdsArray.forEach((id, index) => {
+      const value = batchResults[index];
+
+      // Keep track of which ids have missing values
       if (value === undefined) {
-        fetchSet.add(id);
+        missingIds.push(id);
       } else {
         results.set(id, value);
       }
     });
 
-    return new Promise((resolve, reject) => {
-      const fetchIds = Array.from(fetchSet);
-      const batchPromise = raiseExceptions
-        ? this.burstValve.unsafeBatch(fetchIds)
-        : this.burstValve.batch(fetchIds);
+    // Reject on required values operation
+    if (operation === "required" && missingIds.length) {
+      throw new Error(
+        `Missing values for '${missingIds.join(",")}' in '${this.name}' worker`
+      );
+    }
 
-      batchPromise
-        .then((batchResults) => {
-          if (batchResults) {
-            fetchIds.forEach((id, index) =>
-              results.set(id, batchResults[index])
-            );
-          }
-
-          resolve(ids.map((id) => results.get(id)));
-        })
-        .catch(reject);
-
-      if (staleIds.length) {
-        this.upsertStaleIds(staleIds);
-      }
-    });
+    // Map the results back into id order
+    return ids.map((id) => results.get(id));
   }
 
   /**
@@ -1153,18 +1276,12 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
           .catch((e) => {
             finished = true;
 
-            try {
-              // Ignore exceptions when configured
-              const error = new Error(`Remote cache.get error`, { cause: e });
-              ids.forEach((id) =>
-                writeRemoteResult(
-                  id,
-                  this.ignoreCacheFetchErrors ? undefined : error
-                )
-              );
+            // Ignore exceptions when configured
+            if (this.ignoreCacheFetchErrors) {
+              ids.forEach((id) => writeRemoteResult(id, undefined));
               resolve();
-            } catch (e) {
-              reject(e);
+            } else {
+              reject(optionallyWrapError(e, `Remote cache.get error`));
             }
           });
       });
@@ -1252,17 +1369,7 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
           })
           .catch((e) => {
             finished = true;
-
-            try {
-              // Write error to every batch id
-              const error = new Error(`Worker fetch process error`, {
-                cause: e,
-              });
-              batchIds.forEach((id) => writeResult(id, error));
-              resolve();
-            } catch (e) {
-              reject(e);
-            }
+            reject(optionallyWrapError(e, `Worker fetch process error`));
           });
       });
     }
@@ -1275,9 +1382,10 @@ export class Worker<ResultType, IdentifierType, WorkerIdentifierType = string>
       } catch (e) {
         this.emit(
           "error",
-          new Error(`Failed to set workers results with remoteCache`, {
-            cause: e,
-          })
+          optionallyWrapError(
+            e,
+            `Failed to set workers results with remoteCache`
+          )
         );
       }
     }

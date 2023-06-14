@@ -2334,10 +2334,10 @@ builtins@^5.0.0:
   dependencies:
     semver "^7.0.0"
 
-burst-valve@^1.3.0:
-  version "1.3.0"
-  resolved "https://registry.yarnpkg.com/burst-valve/-/burst-valve-1.3.0.tgz#e086e0cb381f33590cda0368f200394767028811"
-  integrity sha512-vy+l8s+7oLbkFYqiCD4IK/u+KUHmuCwDg8FKK+B7zQAI0LIxw3+aVQYDIt1mpCRUF7ulF99urBr6nR6kzLrTzw==
+burst-valve@^1.4.0:
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/burst-valve/-/burst-valve-1.4.0.tgz#54f413dc3a25c659809d2350cdde726a5c975f0c"
+  integrity sha512-s5rvpX3fLgwVX62yCudJ5rpGw7qXp5ZC6aK0dbDwZpkeWLZcWFELb5ItdphSEACYA7akTq/dv6vYJbpvJ44ccw==
 
 byte-size@^7.0.0:
   version "7.0.1"
