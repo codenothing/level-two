@@ -73,7 +73,7 @@ describe("SingleKeyWorker", () => {
       npm: "hgi789",
     });
     expect(worker.has()).toStrictEqual(true);
-    await wait(250);
+    await wait(300);
     expect(worker.has()).toStrictEqual(false);
     expect(await worker.get()).toEqual({
       github: "abc123",

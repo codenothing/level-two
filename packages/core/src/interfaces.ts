@@ -43,8 +43,8 @@ export interface CacheSettings {
   maximumCacheKeys?: number;
 
   /**
-   * Number of milliseconds, after local cache entries expire, are allowed to be used
-   * while an updated value is fetched. Defaults to none
+   * Number of milliseconds, after local cache entries expire, data is allowed to be
+   * used while an updated value is fetched in the background. Defaults to none
    */
   staleCacheThreshold?: number;
 

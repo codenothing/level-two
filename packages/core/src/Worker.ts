@@ -17,7 +17,8 @@ import type { LevelTwo } from "./LevelTwo";
 const BACKGROUND_TASK_LOOP_THRESHOLD = 1000 * 60;
 
 // Internal cache entry interface
-interface InternalCacheEntry<ResultType> {
+interface InternalCacheEntry<IdentifierType, ResultType> {
+  id: IdentifierType;
   expiresAt: number;
   staleAt: number;
   value: ResultType;
@@ -189,7 +190,10 @@ export class Worker<
   /**
    * Internal local cache
    */
-  private cache = new Map<IdentifierType, InternalCacheEntry<ResultType>>();
+  private cache = new Map<
+    IdentifierType,
+    InternalCacheEntry<IdentifierType, ResultType>
+  >();
 
   /**
    * Internal local cache request counter
@@ -764,6 +768,14 @@ export class Worker<
       }
     });
 
+    // Clean out stale cache entries
+    this.cache.forEach((entry, id) => {
+      if (entry.staleAt < now) {
+        this.cache.delete(id);
+        this.emit("evict", id);
+      }
+    });
+
     // Reduce number of keys to below max count
     if (this.maximumCacheKeys > 0 && this.cache.size > this.maximumCacheKeys) {
       Array.from(this.cache)
@@ -821,17 +833,13 @@ export class Worker<
     // Toss any fully expired content
     this.prune();
 
-    // Clean out stale cache entries
-    const staleIds: IdentifierType[] = [];
-    this.cache.forEach((entry, id) => {
-      if (entry.staleAt < now) {
-        this.cache.delete(id);
-        this.emit("evict", id);
-      } else if (entry.expiresAt < now && entry.staleHits > 0) {
-        staleIds.push(id);
+    // Find all stale data that needs to be upserted
+    const staleIds: IdentifierType[] = Array.from(this.cache.values())
+      .filter((entry) => entry.expiresAt < now && entry.staleHits > 0)
+      .map((entry) => {
         entry.staleHits = 0;
-      }
-    });
+        return entry.id;
+      });
 
     // Refresh stale data
     if (staleIds.length) {
@@ -867,6 +875,8 @@ export class Worker<
     for (let index = -1; ++index < idLength; ) {
       const entry = this.cache.get(ids[index]);
 
+      // Exit if any entry can't be used, and ignore micro performance
+      // needs as async fetch task is following
       if (!entry || entry.staleAt < now) {
         // Clean any stale hits that might have been incurred,
         // these will be handled by getConfiguredCacheEntries
@@ -984,6 +994,7 @@ export class Worker<
     // Clear any request counts before setting
     this.cacheRequests.delete(id);
     this.cache.set(id, {
+      id,
       value,
       expiresAt: now + ttl,
       staleAt: now + ttl + this.staleCacheThreshold,
