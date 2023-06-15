@@ -43,8 +43,8 @@ export interface CacheSettings {
   maximumCacheKeys?: number;
 
   /**
-   * Number of milliseconds stale local cache entries are allowed to be used while an
-   * updated value is fetched. Defaults to none
+   * Number of milliseconds, after local cache entries expire, data is allowed to be
+   * used while an updated value is fetched in the background. Defaults to none
    */
   staleCacheThreshold?: number;
 
@@ -72,6 +72,12 @@ export type WorkerFetchProcess<ResultType, IdentifierType> = (
   | Array<ResultType | Error | undefined>
   | void
 >;
+
+/**
+ * Single key worker fetch process for fetching uncached data
+ */
+export type SingleKeyWorkerFetchProcess<ResultType> =
+  () => Promise<ResultType | void>;
 
 /**
  * Broadcasted message format for keeping processes in sync
@@ -108,19 +114,27 @@ export interface DistributedAction<
  * when caching data has changed
  *
  * @param WorkerIdentifierType Data type for the worker name
+ * @param SingleKeyIdentifierType Data type for the single key worker ids
  */
-export interface MessageBroker<WorkerIdentifierType = string> {
+export interface MessageBroker<
+  WorkerIdentifierType = string,
+  SingleKeyIdentifierType = string
+> {
   /**
    * Signal for when LevelTwo instance has been started
    * @param levelTwo LevelTwo instance being started
    */
-  setup?: (levelTwo: LevelTwo<WorkerIdentifierType>) => Promise<void>;
+  setup?: (
+    levelTwo: LevelTwo<WorkerIdentifierType, SingleKeyIdentifierType>
+  ) => Promise<void>;
 
   /**
    * Signal for when LevelTwo instance has been stopped
    * @param levelTwo LevelTwo instance being stopped
    */
-  teardown?: (levelTwo: LevelTwo<WorkerIdentifierType>) => Promise<void>;
+  teardown?: (
+    levelTwo: LevelTwo<WorkerIdentifierType, SingleKeyIdentifierType>
+  ) => Promise<void>;
 
   /**
    * Method for publishing actions that should be distributed
@@ -148,19 +162,27 @@ export interface MessageBroker<WorkerIdentifierType = string> {
  * of caching in front of the workers
  *
  * @param WorkerIdentifierType Data type for the worker name
+ * @param SingleKeyIdentifierType Data type for the single key worker ids
  */
-export interface RemoteCache<WorkerIdentifierType = string> {
+export interface RemoteCache<
+  WorkerIdentifierType = string,
+  SingleKeyIdentifierType = string
+> {
   /**
    * Signal for when LevelTwo instance has been started
    * @param levelTwo LevelTwo instance being started
    */
-  setup?: (levelTwo: LevelTwo<WorkerIdentifierType>) => Promise<void>;
+  setup?: (
+    levelTwo: LevelTwo<WorkerIdentifierType, SingleKeyIdentifierType>
+  ) => Promise<void>;
 
   /**
    * Signal for when LevelTwo instance has been stopped
    * @param levelTwo LevelTwo instance being stopped
    */
-  teardown?: (levelTwo: LevelTwo<WorkerIdentifierType>) => Promise<void>;
+  teardown?: (
+    levelTwo: LevelTwo<WorkerIdentifierType, SingleKeyIdentifierType>
+  ) => Promise<void>;
 
   /**
    * Fetching list of unique identifiers (namespaced by worker id)

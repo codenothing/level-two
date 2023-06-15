@@ -73,7 +73,7 @@ suite.add("Redis Direct - Single Fetch", {
   });
 });
 
-suite.add("Level One - Single Get", {
+suite.add("Level Two - Single Get", {
   defer: true,
   fn: async (deferred: Benchmark.Deferred) => {
     await worker.get(1);
@@ -84,7 +84,7 @@ suite.add("Level One - Single Get", {
 [5, 25, 100].forEach((idCount) => {
   const ids = generateIds(idCount);
 
-  suite.add(`Level One - Get ${idCount} entries`, {
+  suite.add(`Level Two - Get ${idCount} entries`, {
     defer: true,
     fn: async (deferred: Benchmark.Deferred) => {
       await worker.getMulti(ids);
@@ -95,7 +95,7 @@ suite.add("Level One - Single Get", {
 
 suite
   .on("cycle", (event: Benchmark.Event) => {
-    if (event.target.name === "Level One - Single Get") {
+    if (event.target.name === "Level Two - Single Get") {
       console.log("----------");
     }
     console.log(String(event.target));

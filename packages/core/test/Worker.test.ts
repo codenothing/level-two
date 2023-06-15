@@ -98,10 +98,8 @@ describe("Worker", () => {
   });
 
   describe("get", () => {
-    test("should proxy directly to the getMulti service", async () => {
-      const batchSpy = jest
-        .spyOn(worker, "getMulti")
-        .mockResolvedValue([{ id: "github", name: "Github" }]);
+    test("should proxy directly to the getUnsafeMulti service", async () => {
+      const batchSpy = jest.spyOn(worker, "getUnsafeMulti");
 
       expect(await worker.get(`github`)).toEqual({
         id: "github",
@@ -111,12 +109,35 @@ describe("Worker", () => {
       expect(batchSpy).toHaveBeenLastCalledWith(["github"]);
     });
 
-    test("should throw any error returned, as it is just getting a single source", async () => {
-      jest
-        .spyOn(worker, "getMulti")
-        .mockResolvedValue([new Error(`Foobar Error`)]);
+    test("should propagate any error from getUnsafeMulti", async () => {
+      jest.spyOn(worker, "getUnsafeMulti");
+      dataStore.throwErrors = true;
 
-      await expect(worker.get("github")).rejects.toThrow(`Foobar Error`);
+      await expect(worker.get("github")).rejects.toThrow(
+        `Invalid customer fetch`
+      );
+    });
+  });
+
+  describe("getRequired", () => {
+    test("should proxy directly to the getRequiredMulti service", async () => {
+      const batchSpy = jest.spyOn(worker, "getRequiredMulti");
+
+      expect(await worker.getRequired(`github`)).toEqual({
+        id: "github",
+        name: "Github",
+      });
+      expect(batchSpy).toHaveBeenCalledTimes(1);
+      expect(batchSpy).toHaveBeenLastCalledWith(["github"]);
+    });
+
+    test("should propagate any error from getRequiredMulti", async () => {
+      jest.spyOn(worker, "getRequiredMulti");
+      dataStore.returnNoResults = true;
+
+      await expect(worker.getRequired("github")).rejects.toThrow(
+        `Missing values for 'github' in 'customer' worker`
+      );
     });
   });
 
@@ -195,10 +216,12 @@ describe("Worker", () => {
     });
 
     test("should return locally cached entries without going through remoteCache or fetcher", async () => {
-      expect(await worker.get(`github`)).toEqual({
-        id: "github",
-        name: "Github",
-      });
+      expect(await worker.getMulti([`github`])).toEqual([
+        {
+          id: "github",
+          name: "Github",
+        },
+      ]);
       expect(remoteCache.get).toHaveBeenCalledTimes(1);
       expect(dataStore.customerFetch).toHaveBeenCalledTimes(1);
       expect(worker.has(`github`)).toStrictEqual(true);
@@ -226,9 +249,9 @@ describe("Worker", () => {
     describe("localCache", () => {
       // Make cache fetching instant
       beforeEach(() => {
-        jest
-          .spyOn(remoteCache, "get")
-          .mockResolvedValue([{ id: "github", name: "Github" }]);
+        (remoteCache.get as jest.Mock).mockResolvedValue([
+          { id: "github", name: "Github" },
+        ]);
       });
 
       test("should immediately cache entries when they are fetched", async () => {
@@ -346,6 +369,7 @@ describe("Worker", () => {
           minimumRequestsForCache: 3,
         });
 
+        // Bypass background task runner
         (worker as any).ttl = 30;
         (worker as any).ttlLocal = 30;
         jest.spyOn(worker, "emit");
@@ -362,11 +386,7 @@ describe("Worker", () => {
         expect(remoteCache.get).toHaveBeenCalledTimes(1);
 
         // Calling immediately after should show entry as locally cached
-        (remoteCache.get as jest.Mock).mockClear();
-        expect(await worker.getMulti([`github`])).toEqual([
-          { id: "github", name: "Github" },
-        ]);
-        expect(remoteCache.get).not.toHaveBeenCalled();
+        expect(worker.has("github")).toStrictEqual(true);
 
         // Should not use local cache entry if it's expired
         (remoteCache.get as jest.Mock).mockClear();
@@ -386,15 +406,11 @@ describe("Worker", () => {
         ]);
         expect(remoteCache.get).toHaveBeenCalledTimes(1);
 
-        // Fetching immediatly after expired cache is refilled should use local cache again
-        (remoteCache.get as jest.Mock).mockClear();
-        expect(await worker.getMulti([`github`])).toEqual([
-          { id: "github", name: "Github" },
-        ]);
-        expect(remoteCache.get).not.toHaveBeenCalled();
+        // Fetching immediately after expired cache is refilled should use local cache again
+        expect(worker.has("github")).toStrictEqual(true);
       });
 
-      test("should return cached entries for stale data, while triggering a background fetch", async () => {
+      test("should return cached entries for stale data, while triggering a stale fetch on the next background cycle", async () => {
         const worker = new Worker<MockResultObject, string>(levelTwo, {
           name: "customer",
           worker: dataStore.customerFetch,
@@ -414,14 +430,19 @@ describe("Worker", () => {
         expect(await worker.getMulti([`github`])).toEqual([
           { id: "github", name: "Github" },
         ]);
-        expect(remoteCache.get).toHaveBeenCalledTimes(1);
-
-        // Confirm second call returns the updated cache value
-        (remoteCache.get as jest.Mock).mockClear();
-        expect(await worker.getMulti([`github`])).toEqual([
-          { id: "github", name: "Github 2000" },
-        ]);
         expect(remoteCache.get).not.toHaveBeenCalled();
+
+        // Wait for the next background cycle (ttl 25ms)
+        await wait(30);
+        expect(remoteCache.get).toHaveBeenCalledTimes(1);
+        expect(remoteCache.get).toHaveBeenLastCalledWith(
+          "customer",
+          ["github"],
+          expect.any(Function)
+        );
+
+        // Confirm next call returns the updated cache value, without going external
+        expect(worker.has("github"));
       });
 
       test("should emit any stale cache exceptions instead of throwing", async () => {
@@ -447,14 +468,13 @@ describe("Worker", () => {
         expect(await worker.getMulti([`github`])).toEqual([
           { id: "github", name: "Github" },
         ]);
+
+        // Wait for background cycle to run
+        expect(error).toBeUndefined();
+        await wait(50);
         expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toEqual(
-          `Error during stale cache background fetch for ids "github"`
-        );
-        expect((error as Error).cause).toBeInstanceOf(Error);
-        expect(((error as Error).cause as Error).message).toEqual(
-          `Mock Batch Error`
-        );
+        expect((error as Error).message).toEqual(`Mock Batch Error`);
+        expect((error as Error).cause).toBeUndefined();
       });
 
       test("should emit any stale cache exceptions when cache entries are split instead of throwing", async () => {
@@ -487,14 +507,13 @@ describe("Worker", () => {
           { id: "github", name: "Github" },
           { id: "npm", name: "NPM" },
         ]);
+
+        // Wait for next background cycle to run
+        expect(error).toBeUndefined();
+        await wait(50);
         expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toEqual(
-          `Error during stale cache background fetch for ids "github"`
-        );
-        expect((error as Error).cause).toBeInstanceOf(Error);
-        expect(((error as Error).cause as Error).message).toEqual(
-          `Mock Batch Error`
-        );
+        expect((error as Error).message).toEqual(`Mock Batch Error`);
+        expect((error as Error).cause).toBeUndefined();
       });
     });
 
@@ -521,7 +540,7 @@ describe("Worker", () => {
         jest.spyOn(worker, "emit");
 
         // Wait for the ttl to expire to confirm cache entries are removed
-        await wait(20);
+        await wait(30);
         worker.prune();
         expect(worker.has("github")).toStrictEqual(false);
         expect(worker.has("npm")).toStrictEqual(false);
@@ -707,7 +726,7 @@ describe("Worker", () => {
         expect(dataStore.customerFetch).toHaveBeenCalledTimes(1);
       });
 
-      test("should return error to each id when cache errors are not configued to be ignores", async () => {
+      test("should return error to each id when cache errors are not configured to be ignores", async () => {
         jest
           .spyOn(remoteCache, "get")
           .mockRejectedValue(new Error(`Mock Remote Cache Error`));
@@ -716,12 +735,9 @@ describe("Worker", () => {
         const [error1, error2] = await worker.getMulti([`github`, `circleci`]);
         expect(error1).toBeInstanceOf(Error);
         expect((error1 as Error).message).toStrictEqual(
-          `Remote cache.get error`
-        );
-        expect((error1 as Error).cause).toBeInstanceOf(Error);
-        expect(((error1 as Error).cause as Error).message).toStrictEqual(
           `Mock Remote Cache Error`
         );
+        expect((error1 as Error).cause).toBeUndefined();
         expect(error1 === error2).toBeTruthy();
 
         // Cache should have been called, but worker fetch should have been skipped
@@ -747,13 +763,8 @@ describe("Worker", () => {
         ]);
         await wait();
 
-        expect(error?.message).toStrictEqual(
-          `Failed to set workers results with remoteCache`
-        );
-        expect(error?.cause).toBeInstanceOf(Error);
-        expect((error?.cause as Error).message).toStrictEqual(
-          `Mock Cache Set Error`
-        );
+        expect(error?.message).toStrictEqual(`Mock Cache Set Error`);
+        expect(error?.cause).toBeUndefined();
       });
     });
 
@@ -818,13 +829,8 @@ describe("Worker", () => {
 
         const [error1, error2] = await worker.getMulti([`github`, `circleci`]);
         expect(error1).toBeInstanceOf(Error);
-        expect((error1 as Error).message).toStrictEqual(
-          `Worker fetch process error`
-        );
-        expect((error1 as Error).cause).toBeInstanceOf(Error);
-        expect(((error1 as Error).cause as Error).message).toStrictEqual(
-          `Mock Fetcher Error`
-        );
+        expect((error1 as Error).message).toStrictEqual(`Mock Fetcher Error`);
+        expect((error1 as Error).cause).toBeUndefined();
         expect(error1 === error2).toBeTruthy();
       });
 
@@ -889,34 +895,59 @@ describe("Worker", () => {
       expect(dataStore.customerFetch).not.toHaveBeenCalled();
     });
 
-    test("should return cached entries for stale data, while triggering a background fetch", async () => {
-      const worker = new Worker<MockResultObject, string>(levelTwo, {
-        name: "customer",
-        worker: dataStore.customerFetch,
-        ttl: 25,
-        staleCacheThreshold: 1000,
-      });
+    test("should throw fetcher errors instead of returning them", async () => {
+      dataStore.customerFetch.mockRejectedValue(
+        new Error(`Mock Fetcher Error`)
+      );
 
-      prefillWorker(worker);
+      await expect(
+        worker.getUnsafeMulti([`github`, `circleci`, `npm`])
+      ).rejects.toThrow(`Mock Fetcher Error`);
+    });
+  });
 
-      // Wait for ttl to expire, but still be within stale threshold
-      await wait(50);
-
-      // Confirm immediate cache is returned on the first call
-      (remoteCache.get as jest.Mock).mockResolvedValue([
-        { id: "github", name: "Github 2000" },
-      ]);
-      expect(await worker.getUnsafeMulti([`github`])).toEqual([
+  describe("getRequiredMulti", () => {
+    test("should request multiple identifiers at the same time", async () => {
+      expect(
+        await worker.getRequiredMulti([`github`, `circleci`, `npm`])
+      ).toEqual([
         { id: "github", name: "Github" },
+        { id: "circleci", name: "CircleCI" },
+        { id: "npm", name: "NPM" },
       ]);
       expect(remoteCache.get).toHaveBeenCalledTimes(1);
+      expect(remoteCache.get).toHaveBeenLastCalledWith(
+        `customer`,
+        [`github`, `circleci`, `npm`],
+        expect.any(Function)
+      );
+      expect(dataStore.customerFetch).toHaveBeenCalledTimes(1);
+      expect(dataStore.customerFetch).toHaveBeenLastCalledWith(
+        [`github`, `circleci`, `npm`],
+        expect.any(Function)
+      );
+    });
 
-      // Confirm second call returns the updated cache value
-      (remoteCache.get as jest.Mock).mockClear();
-      expect(await worker.getUnsafeMulti([`github`])).toEqual([
-        { id: "github", name: "Github 2000" },
+    test("should use cached results", async () => {
+      prefillWorker(worker);
+      expect(await worker.getRequiredMulti([`github`, `npm`])).toEqual([
+        { id: "github", name: "Github" },
+        { id: "npm", name: "NPM" },
       ]);
       expect(remoteCache.get).not.toHaveBeenCalled();
+      expect(dataStore.customerFetch).not.toHaveBeenCalled();
+    });
+
+    test("should throw errors if keys don't have values", async () => {
+      dataStore.customerFetch.mockResolvedValue(
+        new Map<string, MockResultObject>([
+          [`circleci`, { id: "circleci", name: "CircleCI" }],
+        ])
+      );
+
+      await expect(
+        worker.getRequiredMulti([`github`, `circleci`, `npm`])
+      ).rejects.toThrow(`Missing values for 'github,npm' in 'customer' worker`);
     });
 
     test("should throw fetcher errors instead of returning them", async () => {
@@ -924,109 +955,9 @@ describe("Worker", () => {
         new Error(`Mock Fetcher Error`)
       );
 
-      try {
-        await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
-        throw new Error("Should Not Get Here");
-      } catch (e) {
-        let error = e as Error;
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toStrictEqual(
-          `Batch fetcher error for 'customer' Worker`
-        );
-
-        error = error.cause as Error;
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toStrictEqual(
-          `Worker fetch process error`
-        );
-
-        error = error.cause as Error;
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toStrictEqual(`Mock Fetcher Error`);
-      }
-    });
-
-    test("should throw fetcher returned errors", async () => {
-      dataStore.customerFetch.mockImplementation(async (ids) =>
-        ids.map(() => new Error(`Mock Returned Error`))
-      );
-
-      try {
-        await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
-        throw new Error("Should Not Get Here");
-      } catch (e) {
-        expect(e).toBeInstanceOf(Error);
-        expect((e as Error).message).toStrictEqual(
-          `Batch fetcher error for 'customer' Worker`
-        );
-        expect((e as Error).cause).toBeInstanceOf(Error);
-        expect(((e as Error).cause as Error).message).toStrictEqual(
-          `Mock Returned Error`
-        );
-      }
-    });
-
-    test("should throw remoteCache errors instead of returning them", async () => {
-      const worker = new Worker<MockResultObject, string>(levelTwo, {
-        name: "customer",
-        worker: dataStore.customerFetch,
-        ignoreCacheFetchErrors: false,
-      });
-
-      jest
-        .spyOn(remoteCache, "get")
-        .mockRejectedValue(new Error(`Mock Remote Cache Error`));
-
-      try {
-        await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
-        throw new Error("Should Not Get Here");
-      } catch (e) {
-        let error = e as Error;
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toStrictEqual(
-          `Batch fetcher error for 'customer' Worker`
-        );
-
-        error = error.cause as Error;
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toStrictEqual(
-          `Remote cache.get error`
-        );
-
-        error = error.cause as Error;
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toStrictEqual(
-          `Mock Remote Cache Error`
-        );
-      }
-    });
-
-    test("should throw remoteCache returned errors", async () => {
-      const worker = new Worker<MockResultObject, string>(levelTwo, {
-        name: "customer",
-        worker: dataStore.customerFetch,
-        ignoreCacheFetchErrors: false,
-      });
-
-      jest
-        .spyOn(remoteCache, "get")
-        .mockImplementation(async (_worker, ids) =>
-          ids.map(() => new Error(`Mock Cache Return Error`))
-        );
-
-      try {
-        await worker.getUnsafeMulti([`github`, `circleci`, `npm`]);
-        throw new Error("Should Not Get Here");
-      } catch (e) {
-        expect(e).toBeInstanceOf(Error);
-        expect((e as Error).message).toStrictEqual(
-          `Batch fetcher error for 'customer' Worker`
-        );
-        expect((e as Error).cause).toBeInstanceOf(Error);
-        expect(((e as Error).cause as Error).message).toStrictEqual(
-          `Mock Cache Return Error`
-        );
-      }
+      await expect(
+        worker.getRequiredMulti([`github`, `circleci`, `npm`])
+      ).rejects.toThrow(`Mock Fetcher Error`);
     });
   });
 
@@ -1080,7 +1011,7 @@ describe("Worker", () => {
       ]);
       expect(idsFetched).toEqual([["circleci", "jetbrains", "jira"]]);
 
-      // Should propogate found entry
+      // Should propagate found entry
       earlyWrite("circleci", { id: "circleci", name: "CircleCI" });
       await wait();
       expect(responses).toEqual([
@@ -1098,7 +1029,7 @@ describe("Worker", () => {
         },
       ]);
 
-      // Should propogate any errors written out
+      // Should propagate any errors written out
       const mockError = new Error("Mock Early Write Error");
       earlyWrite("jetbrains", mockError);
       await wait();
@@ -1151,23 +1082,30 @@ describe("Worker", () => {
       await streamPromise;
     });
 
-    test("should fire off request for stale ids when doing stream calls", async () => {
+    test("should use fully cached items if available", async () => {
+      prefillWorker(worker);
+      const streamCallback = jest.fn();
+      await worker.stream(["github", "npm"], streamCallback);
+      expect(streamCallback.mock.calls).toEqual([
+        ["github", { id: "github", name: "Github" }],
+        ["npm", { id: "npm", name: "NPM" }],
+      ]);
+    });
+
+    test("should mark stale items for background refresh", async () => {
       prefillWorker(worker, ["github"]);
       await wait(60);
       prefillWorker(worker, ["npm"]);
 
       worker.stream(["github", "npm", "circleci"], async () => undefined);
-      await wait(5);
+      await wait(50);
       expect(idsFetched).toEqual([["circleci"], ["github"]]);
     });
   });
 
   describe("upsert", () => {
     test("should just proxy upsert request to upsertMulti", async () => {
-      jest
-        .spyOn(worker, "upsertMulti")
-        .mockResolvedValue([{ id: "github", name: "Github" }]);
-
+      jest.spyOn(worker, "upsertMulti");
       expect(await worker.upsert("github", true)).toEqual({
         id: "github",
         name: "Github",
@@ -1177,9 +1115,9 @@ describe("Worker", () => {
     });
 
     test("should throw error returned from upsertMulti", async () => {
-      jest
-        .spyOn(worker, "upsertMulti")
-        .mockResolvedValue([new Error(`Mock Multi Upsert Error`)]);
+      dataStore.customerFetch.mockResolvedValue([
+        new Error(`Mock Multi Upsert Error`),
+      ]);
 
       await expect(worker.upsert("github")).rejects.toThrow(
         `Mock Multi Upsert Error`
@@ -1187,8 +1125,41 @@ describe("Worker", () => {
     });
   });
 
+  describe("upsertRequired", () => {
+    test("should just proxy upsert request to upsertRequiredMulti", async () => {
+      jest.spyOn(worker, "upsertRequiredMulti");
+      expect(await worker.upsertRequired("github", true)).toEqual({
+        id: "github",
+        name: "Github",
+      });
+      expect(worker.upsertRequiredMulti).toHaveBeenCalledTimes(1);
+      expect(worker.upsertRequiredMulti).toHaveBeenLastCalledWith(
+        ["github"],
+        true
+      );
+    });
+
+    test("should raise exception when there are no values", async () => {
+      dataStore.customerFetch.mockResolvedValue([undefined]);
+
+      await expect(worker.upsertRequired("github")).rejects.toThrow(
+        `Missing upserted values for 'github' in 'customer' worker`
+      );
+    });
+
+    test("should throw error returned from upsertRequiredMulti", async () => {
+      dataStore.customerFetch.mockResolvedValue([
+        new Error(`Mock Multi Upsert Error`),
+      ]);
+
+      await expect(worker.upsertRequired("github")).rejects.toThrow(
+        `Mock Multi Upsert Error`
+      );
+    });
+  });
+
   describe("upsertMulti", () => {
-    test("should skip cached entries and replace with new results", async () => {
+    test("should skip locally cached entries and replace with new results", async () => {
       prefillWorker();
 
       // Calling upsertMulti should return the new value

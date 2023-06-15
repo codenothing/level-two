@@ -1,12 +1,18 @@
 import Benchmark from "benchmark";
 import { LevelTwo } from "../src";
 
+const BATCH_COUNT = [100, 50, 25, 5, 1];
+
 const tick = () => new Promise((resolve) => process.nextTick(resolve));
 
 const generateIds = (count: number) =>
   new Array(count).fill(0).map((_v, i) => i + 1);
 
 const levelTwo = new LevelTwo();
+
+const configWorker = levelTwo.createSingleKeyWorker("config", async () => ({
+  config: true,
+}));
 
 const worker = levelTwo.createWorker<number, number>(
   "get",
@@ -26,8 +32,16 @@ suite.add(`get`, {
   },
 });
 
-[1, 5, 25, 50, 100].forEach((idCcount) => {
-  const ids = generateIds(idCcount);
+suite.add(`get single-key`, {
+  defer: true,
+  fn: async (deferred: Benchmark.Deferred) => {
+    await configWorker.get();
+    deferred.resolve();
+  },
+});
+
+BATCH_COUNT.forEach((idCount) => {
+  const ids = generateIds(idCount);
   suite.add(`getMulti ${ids.length} ids`, {
     defer: true,
     fn: async (deferred: Benchmark.Deferred) => {
@@ -37,12 +51,23 @@ suite.add(`get`, {
   });
 });
 
-[1, 5, 25, 50, 100].forEach((idCcount) => {
-  const ids = generateIds(idCcount);
+BATCH_COUNT.forEach((idCount) => {
+  const ids = generateIds(idCount);
   suite.add(`getUnsafeMulti ${ids.length} ids`, {
     defer: true,
     fn: async (deferred: Benchmark.Deferred) => {
       await worker.getUnsafeMulti(ids);
+      deferred.resolve();
+    },
+  });
+});
+
+BATCH_COUNT.forEach((idCount) => {
+  const ids = generateIds(idCount);
+  suite.add(`getRequiredMulti ${ids.length} ids`, {
+    defer: true,
+    fn: async (deferred: Benchmark.Deferred) => {
+      await worker.getRequiredMulti(ids);
       deferred.resolve();
     },
   });
