@@ -1,4 +1,4 @@
-import { LevelTwo, SingleKeyWorker } from "../src";
+import { Entry, LevelTwo, SingleKeyWorker } from "../src";
 import {
   getMockedMessageBroker,
   getMockedRemoteCache,
@@ -96,6 +96,32 @@ describe("SingleKeyWorker", () => {
       npm: "xyz456",
     });
     expect(await worker.getRequired()).toEqual({
+      github: "abc123",
+      npm: "xyz456",
+    });
+    expect(remoteCache.get).toHaveBeenCalledTimes(2);
+    expect(fetchProcess).toHaveBeenCalledTimes(2);
+  });
+
+  test("getEntry should return entry wrapped value", async () => {
+    fetchProcess.mockResolvedValue(undefined);
+
+    let entry = await worker.getEntry();
+    expect(entry).toBeInstanceOf(Entry);
+    expect(entry.id).toStrictEqual("tokens");
+    expect(entry.value).toBeUndefined();
+    expect(remoteCache.get).toHaveBeenCalledTimes(1);
+    expect(fetchProcess).toHaveBeenCalledTimes(1);
+
+    // Confirm call is successful when there is a value
+    fetchProcess.mockResolvedValue({
+      github: "abc123",
+      npm: "xyz456",
+    });
+    entry = await worker.getEntry();
+    expect(entry).toBeInstanceOf(Entry);
+    expect(entry.id).toStrictEqual("tokens");
+    expect(entry.value).toEqual({
       github: "abc123",
       npm: "xyz456",
     });

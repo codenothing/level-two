@@ -73,6 +73,17 @@ BATCH_COUNT.forEach((idCount) => {
   });
 });
 
+BATCH_COUNT.forEach((idCount) => {
+  const ids = generateIds(idCount);
+  suite.add(`getEntryMulti ${ids.length} ids`, {
+    defer: true,
+    fn: async (deferred: Benchmark.Deferred) => {
+      await worker.getEntryMulti(ids);
+      deferred.resolve();
+    },
+  });
+});
+
 suite
   .on("cycle", (event: Benchmark.Event) => {
     console.log(String(event.target));

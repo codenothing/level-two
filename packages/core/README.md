@@ -178,6 +178,10 @@ Shortcut method for batch fetching a single object. Any error is thrown instead 
 
 Shortcut method for batch fetching a single required object. Any error is thrown instead of returned, and exception is raised if no value is found
 
+### `getMeta(id: IdentifierType)`
+
+Shortcut method for batch fetching a single meta wrapped entry. Exceptions are returned, not raised
+
 ### `getMulti(ids: IdentifierType[])`
 
 Gets a a list of values for the identifiers provided. First attempts to find values from the local cache, then falls back to remote cache if defined, and finally pulls from the worker process.
@@ -191,6 +195,12 @@ Similar to getMulti, fetches list of values for the identifiers provided, but ra
 ### `getRequiredMulti(ids: IdentifierType[])`
 
 Similar to getMulti, fetches list of values for the identifiers provided, but raises exceptions when values are not found for any id
+
+### `getMetaMulti(ids: IdentifierType[])`
+
+Similar to getMulti, gets a a list of meta wrapped entries for the identifiers provided. The "source" indicates at what point the value was retrieved from (local-cache, remote-cache, or worker)
+
+Exceptions are returned, not raised, and use the "error" source key
 
 ### `stream(ids: IdentifierType[], streamResultCallback: (id: IdentifierType, result: ResultType) => Promise<void>)`
 

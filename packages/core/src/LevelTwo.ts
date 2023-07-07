@@ -1,5 +1,5 @@
 import EventEmitter from "events";
-import {
+import type {
   CacheSettings,
   DistributedAction,
   MessageBroker,
