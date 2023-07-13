@@ -131,6 +131,11 @@ export class Worker<
   public readonly name: WorkerIdentifierType;
 
   /**
+   * Skips usage of remote cache for this worker
+   */
+  public readonly skipRemoteCache: boolean;
+
+  /**
    * ttl for each cache entry
    */
   public readonly ttl: number;
@@ -217,6 +222,7 @@ export class Worker<
     this.levelTwo = levelTwo;
     this.name = settings.name;
     this.worker = settings.worker;
+    this.skipRemoteCache = !!settings.skipRemoteCache;
     this.ttl =
       settings.ttl || levelTwo.settings.cacheDefaults?.ttl || DEFAULT_CACHE_TTL;
     this.ttlLocal =
@@ -882,7 +888,7 @@ export class Worker<
   private get remoteCache():
     | RemoteCache<WorkerIdentifierType, SingleKeyIdentifierType>
     | undefined {
-    return this.levelTwo.remoteCache;
+    return this.skipRemoteCache ? undefined : this.levelTwo.remoteCache;
   }
 
   /**

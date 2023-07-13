@@ -54,6 +54,11 @@ export interface CacheSettings {
    * an error for each id. Defaults to false
    */
   ignoreCacheFetchErrors?: boolean;
+
+  /**
+   * Skips usage of remote cache for this worker
+   */
+  skipRemoteCache?: boolean;
 }
 
 /**

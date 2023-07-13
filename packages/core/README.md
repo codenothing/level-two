@@ -172,6 +172,10 @@ Number of milliseconds stale local cache entries are allowed to be used while an
 
 Indicator if any exceptions raised by the remote cache should be ignored, which would result in those ids being sent to the worker instead of returning an error for each id. Defaults to false.
 
+### `skipRemoteCache`
+
+Skips usage of remote cache for this worker
+
 ## Worker API
 
 Namespaced workers are used to fetch and cache data for a specific object type. The worker instance itself is an Iterable that can be looped over to investigate all valid cache entries.
