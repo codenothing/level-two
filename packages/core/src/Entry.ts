@@ -69,14 +69,14 @@ export class Entry<IdentifierType, ResultType> {
   public error?: Error;
 
   /**
-   * Timestamp in milliseconds of when the cache entry expires (can still be used as stale if configured)
-   */
-  public expiresAt = 0;
-
-  /**
-   * Timestamp in milliseconds of when the cache entry can no longer be used (passed max stale threshold)
+   * Timestamp in milliseconds of when the cache entry becomes stale (can still be used, just refreshed in the background)
    */
   public staleAt = 0;
+
+  /**
+   * Timestamp in milliseconds of when the cache entry expires (can no longer be used)
+   */
+  public expiresAt = 0;
 
   /**
    * Timestamp in millisecond of when the cache
@@ -91,22 +91,23 @@ export class Entry<IdentifierType, ResultType> {
     this.source = entry.source;
     this.value = entry.value;
     this.error = entry.error;
-    this.expiresAt = now + (entry.ttl || 0);
-    this.staleAt = this.expiresAt + (entry.staleCacheThreshold || 0);
+    this.staleAt = now + (entry.ttl || 0);
+    this.expiresAt = this.staleAt + (entry.staleCacheThreshold || 0);
     this.upsertedAt = now;
   }
 
   /**
-   * Indicates if the entry is stale (can still be used, just past the expiration)
+   * Indicates if the entry is stale (can still be used, just past the ttl)
    */
   public get isStale(): boolean {
-    return Date.now() > this.expiresAt;
+    const now = Date.now();
+    return now > this.staleAt && now <= this.expiresAt;
   }
 
   /**
    * Indicates if the entry is still usable (past stale threshold)
    */
   public get isExpired(): boolean {
-    return Date.now() > this.staleAt;
+    return Date.now() > this.expiresAt;
   }
 }

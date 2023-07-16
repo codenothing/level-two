@@ -26,14 +26,14 @@ export class InternalCacheEntry<IdentifierType, ResultType> {
   public staleCacheThreshold = 0;
 
   /**
-   * Timestamp in milliseconds of when the cache entry expires (can still be used as stale if configured)
-   */
-  public expiresAt = 0;
-
-  /**
-   * Timestamp in milliseconds of when the cache entry can no longer be used (passed max stale threshold)
+   * Timestamp in milliseconds of when the cache entry becomes stale (can still be used, just refreshed in the background)
    */
   public staleAt = 0;
+
+  /**
+   * Timestamp in milliseconds of when the cache entry expires (can no longer be used)
+   */
+  public expiresAt = 0;
 
   /**
    * Indicates if cache entry has been accessed while stale
@@ -45,8 +45,8 @@ export class InternalCacheEntry<IdentifierType, ResultType> {
     this.value = entry.value;
     this.ttl = entry.ttl || 0;
     this.staleCacheThreshold = entry.staleCacheThreshold || 0;
-    this.expiresAt = this.entry.expiresAt;
     this.staleAt = this.entry.staleAt;
+    this.expiresAt = this.entry.expiresAt;
   }
 
   /**
@@ -111,8 +111,8 @@ export class InternalCacheEntry<IdentifierType, ResultType> {
 
     this.ttl = ttl;
     this.staleCacheThreshold = staleCacheThreshold;
-    this.expiresAt = this.entry.expiresAt = now + this.ttl;
-    this.staleAt = this.entry.staleAt =
-      now + this.ttl + this.staleCacheThreshold;
+    this.staleAt = this.entry.staleAt = now + this.ttl;
+    this.expiresAt = this.entry.expiresAt =
+      this.staleAt + this.staleCacheThreshold;
   }
 }

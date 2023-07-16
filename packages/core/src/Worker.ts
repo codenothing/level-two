@@ -983,9 +983,9 @@ export class Worker<
       const entry = this.cache.get(ids[index]);
 
       // Exit if any entry can't be used
-      if (!entry || entry.staleAt < now) {
+      if (!entry || entry.expiresAt < now) {
         return;
-      } else if (entry.expiresAt < now) {
+      } else if (entry.staleAt < now) {
         entry.staleHit = true;
       }
 

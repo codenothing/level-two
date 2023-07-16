@@ -15,6 +15,12 @@ Review the list of supported extensions below for easy configuration of common b
 | [@level-two/kafka](https://www.npmjs.com/package/@level-two/kafka)         | Kafka extension for a message broker only      |
 | [@level-two/memcached](https://www.npmjs.com/package/@level-two/memcached) | Memcached extension for a cache only           |
 
+## Breaking Changes
+
+Starting with version `2.0.0`: Iterable, `peek`, `peekMulti`, `values`, `entries`, `forEach` all return `CachedEntry` wrapped result values instead of the `ResultValue` directly.
+
+Switching to a wrapped `CachedEntry` will allow for current and future expansion on utilities for metric tracking of entries.
+
 ## Usage
 
 ```ts
@@ -178,9 +184,9 @@ Shortcut method for batch fetching a single object. Any error is thrown instead 
 
 Shortcut method for batch fetching a single required object. Any error is thrown instead of returned, and exception is raised if no value is found
 
-### `getMeta(id: IdentifierType)`
+### `getEntry(id: IdentifierType)`
 
-Shortcut method for batch fetching a single meta wrapped entry. Exceptions are returned, not raised
+Shortcut method for batch fetching a single Entry wrapped value. Exceptions are returned, not raised.
 
 ### `getMulti(ids: IdentifierType[])`
 
@@ -196,9 +202,9 @@ Similar to getMulti, fetches list of values for the identifiers provided, but ra
 
 Similar to getMulti, fetches list of values for the identifiers provided, but raises exceptions when values are not found for any id
 
-### `getMetaMulti(ids: IdentifierType[])`
+### `getEntryMulti(ids: IdentifierType[])`
 
-Similar to getMulti, gets a a list of meta wrapped entries for the identifiers provided. The "source" indicates at what point the value was retrieved from (local-cache, remote-cache, or worker)
+Similar to getMulti, gets a a list of Entry wrapped values for the identifiers provided. The "source" indicates at what point the value was retrieved from (local-cache, remote-cache, or worker)
 
 Exceptions are returned, not raised, and use the "error" source key
 

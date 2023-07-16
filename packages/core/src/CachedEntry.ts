@@ -1,4 +1,5 @@
 import { Entry, EntryProps } from "./Entry";
+
 /**
  * Options for creating an CachedEntry instance
  */
