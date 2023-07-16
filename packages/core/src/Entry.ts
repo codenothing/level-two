@@ -79,7 +79,7 @@ export class Entry<IdentifierType, ResultType> {
   public expiresAt = 0;
 
   /**
-   * Timestamp in millisecond of when the cache
+   * Timestamp in milliseconds of when the cache
    */
   public upsertedAt = 0;
 
