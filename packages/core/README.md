@@ -282,7 +282,7 @@ Returns list of valid cache entry values in the cache.
 
 Returns list of valid cache entries in the cache.
 
-### `forEach(iter: (value: ResultType, id: IdentifierType) => void)`
+### `forEach(iter: (value: CachedEntry<IdentifierType, ResultType>, id: IdentifierType) => void)`
 
 Executes the provided function once per each valid id/value pair in the cache.
 

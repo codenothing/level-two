@@ -13,11 +13,9 @@ import type {
 } from "./interfaces";
 import type { LevelTwo } from "./LevelTwo";
 import { WorkerError } from "./WorkerError";
-import {
-  InternalCacheEntry,
-  InternalCacheEntryProps,
-} from "./InternalCacheEntry";
+import { InternalCacheEntry } from "./InternalCacheEntry";
 import { Entry } from "./Entry";
+import { CachedEntry, CachedEntryProps } from "./CachedEntry";
 
 // Run background tasks every minute by default
 const BACKGROUND_TASK_LOOP_THRESHOLD = 1000 * 60;
@@ -124,7 +122,8 @@ export class Worker<
     SingleKeyIdentifierType = string
   >
   extends EventEmitter
-  implements Iterable<[IdentifierType, ResultType]>
+  implements
+    Iterable<[IdentifierType, CachedEntry<IdentifierType, ResultType>]>
 {
   /**
    * Name of the worker, for use in namespacing cache entries
@@ -737,8 +736,8 @@ export class Worker<
   /**
    * Returns list of valid cache entry values in the cache
    */
-  public values(): ResultType[] {
-    const values: ResultType[] = [];
+  public values(): CachedEntry<IdentifierType, ResultType>[] {
+    const values: CachedEntry<IdentifierType, ResultType>[] = [];
     for (const entry of this) {
       values.push(entry[1]);
     }
@@ -748,8 +747,12 @@ export class Worker<
   /**
    * Returns list of valid cache entries in the cache
    */
-  public entries(): Array<[IdentifierType, ResultType]> {
-    const entries: Array<[IdentifierType, ResultType]> = [];
+  public entries(): Array<
+    [IdentifierType, CachedEntry<IdentifierType, ResultType>]
+  > {
+    const entries: Array<
+      [IdentifierType, CachedEntry<IdentifierType, ResultType>]
+    > = [];
     for (const [id, value] of this) {
       entries.push([id, value]);
     }
@@ -760,25 +763,14 @@ export class Worker<
    * Executes the provided function once per each valid id/value pair in the cache
    * @param iter Iterator function called for each id/value paid
    */
-  public forEach(iter: (value: ResultType, id: IdentifierType) => void): void {
+  public forEach(
+    iter: (
+      value: CachedEntry<IdentifierType, ResultType>,
+      id: IdentifierType
+    ) => void
+  ): void {
     for (const [id, value] of this) {
       iter(value, id);
-    }
-  }
-
-  /**
-   * Executes the provided function once per each valid id/value pair in the cache
-   * @param iter Iterator function called for each id/value paid
-   */
-  public forEachEntry(
-    iter: (value: Entry<IdentifierType, ResultType>, index: number) => void
-  ): void {
-    let index = 0;
-    for (const [, entry] of this.cache) {
-      if (!entry.isExpired) {
-        iter(entry.entry, index);
-        index++;
-      }
     }
   }
 
@@ -805,9 +797,11 @@ export class Worker<
    *
    * @param id Unique cache identifier
    */
-  public peek(id: IdentifierType): ResultType | undefined {
+  public peek(
+    id: IdentifierType
+  ): CachedEntry<IdentifierType, ResultType> | undefined {
     const entry = this.cache.get(id);
-    return !entry?.isExpired ? entry?.value : undefined;
+    return !entry?.isExpired ? entry?.entry : undefined;
   }
 
   /**
@@ -816,7 +810,9 @@ export class Worker<
    *
    * @param ids List of unique cache identifiers
    */
-  public peekMulti(ids: IdentifierType[]): Array<ResultType | undefined> {
+  public peekMulti(
+    ids: IdentifierType[]
+  ): Array<CachedEntry<IdentifierType, ResultType> | undefined> {
     return ids.map((id) => this.peek(id));
   }
 
@@ -870,10 +866,12 @@ export class Worker<
   /**
    * Iterator to make the worker iterable on the valid cache entries
    */
-  public *[Symbol.iterator](): IterableIterator<[IdentifierType, ResultType]> {
+  public *[Symbol.iterator](): IterableIterator<
+    [IdentifierType, CachedEntry<IdentifierType, ResultType>]
+  > {
     for (const [id, entry] of this.cache) {
       if (!entry.isExpired) {
-        yield [id, entry.value];
+        yield [id, entry.entry];
       }
     }
   }
@@ -960,7 +958,7 @@ export class Worker<
   private getCacheEntries(
     ids: IdentifierType[],
     fullEntries: true
-  ): Entry<IdentifierType, ResultType>[] | void;
+  ): CachedEntry<IdentifierType, ResultType>[] | void;
 
   /**
    * Returns a list of locally cached values. Nothing is returned if any
@@ -975,10 +973,10 @@ export class Worker<
   private getCacheEntries(
     ids: IdentifierType[],
     fullEntries?: true
-  ): ResultType[] | Entry<IdentifierType, ResultType>[] | void {
+  ): ResultType[] | CachedEntry<IdentifierType, ResultType>[] | void {
     const now = Date.now();
     const idLength = ids.length;
-    const results: ResultType[] | Entry<IdentifierType, ResultType>[] =
+    const results: ResultType[] | CachedEntry<IdentifierType, ResultType>[] =
       new Array(idLength);
 
     for (let index = -1; ++index < idLength; ) {
@@ -991,9 +989,7 @@ export class Worker<
         entry.staleHit = true;
       }
 
-      results[index] = fullEntries
-        ? (entry.entry as Entry<IdentifierType, ResultType>)
-        : entry.value;
+      results[index] = fullEntries ? entry.entry : entry.value;
     }
 
     return results;
@@ -1071,7 +1067,7 @@ export class Worker<
    */
   private addToCache(
     props:
-      | InternalCacheEntryProps<IdentifierType, ResultType>
+      | CachedEntryProps<IdentifierType, ResultType>
       | InternalCacheEntry<IdentifierType, ResultType>
   ): boolean {
     const now = Date.now();

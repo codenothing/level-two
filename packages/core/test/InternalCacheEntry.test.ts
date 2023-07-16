@@ -6,6 +6,7 @@ describe("InternalCacheEntry", () => {
       id: "abc123",
       source: "local-cache",
       value: "val123",
+      ttl: 5000,
     });
     expect(entry.id).toStrictEqual(entry.entry.id);
     expect(entry.createdAt).toStrictEqual(entry.entry.createdAt);

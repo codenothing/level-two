@@ -1,17 +1,4 @@
-import { Entry, EntryProps } from "./Entry";
-
-/**
- * Enforce required value from the entry props
- */
-export type InternalCacheEntryProps<IdentifierType, ResultType> = Omit<
-  EntryProps<IdentifierType, ResultType>,
-  "value"
-> & {
-  /**
-   * Value of the cached entry
-   */
-  value: ResultType;
-};
+import { CachedEntry, CachedEntryProps } from "./CachedEntry";
 
 /**
  * Internal wrapper for the full Entry object, for shortcut management utils
@@ -20,7 +7,7 @@ export class InternalCacheEntry<IdentifierType, ResultType> {
   /**
    * Externally usable cache entry object
    */
-  public readonly entry: Entry<IdentifierType, ResultType>;
+  public readonly entry: CachedEntry<IdentifierType, ResultType>;
 
   /**
    * Value of the cached entry
@@ -53,10 +40,8 @@ export class InternalCacheEntry<IdentifierType, ResultType> {
    */
   public staleHit = false;
 
-  public constructor(
-    entry: InternalCacheEntryProps<IdentifierType, ResultType>
-  ) {
-    this.entry = new Entry(entry);
+  public constructor(entry: CachedEntryProps<IdentifierType, ResultType>) {
+    this.entry = new CachedEntry(entry);
     this.value = entry.value;
     this.ttl = entry.ttl || 0;
     this.staleCacheThreshold = entry.staleCacheThreshold || 0;
@@ -81,7 +66,7 @@ export class InternalCacheEntry<IdentifierType, ResultType> {
   /**
    * Source of where the value was fetched from
    */
-  public get source(): EntryProps<IdentifierType, ResultType>["source"] {
+  public get source(): CachedEntryProps<IdentifierType, ResultType>["source"] {
     return this.entry.source;
   }
 

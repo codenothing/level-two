@@ -1,4 +1,5 @@
 import { LevelTwo, Worker } from "../src";
+import { CachedEntry } from "../src/CachedEntry";
 import { Entry } from "../src/Entry";
 import {
   getMockedMessageBroker,
@@ -1669,16 +1670,25 @@ describe("Worker", () => {
           ttl: 1000,
         },
       ]);
-      expect(worker.values()).toEqual([
-        { id: "github", name: "Github" },
-        { id: "npm", name: "NPM" },
-        { id: "circleci", name: "CircleCI" },
+
+      const values = worker.values();
+      expect(values[0]).toBeInstanceOf(CachedEntry);
+      expect(values[1]).toBeInstanceOf(CachedEntry);
+      expect(values[2]).toBeInstanceOf(CachedEntry);
+      expect(values).toEqual([
+        expect.objectContaining({ value: { id: "github", name: "Github" } }),
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } }),
+        expect.objectContaining({
+          value: { id: "circleci", name: "CircleCI" },
+        }),
       ]);
 
       await wait(20);
       expect(worker.values()).toEqual([
-        { id: "npm", name: "NPM" },
-        { id: "circleci", name: "CircleCI" },
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } }),
+        expect.objectContaining({
+          value: { id: "circleci", name: "CircleCI" },
+        }),
       ]);
     });
   });
@@ -1700,16 +1710,34 @@ describe("Worker", () => {
           ttl: 1000,
         },
       ]);
-      expect(worker.entries()).toEqual([
-        ["github", { id: "github", name: "Github" }],
-        ["npm", { id: "npm", name: "NPM" }],
-        ["circleci", { id: "circleci", name: "CircleCI" }],
+
+      const entries = worker.entries();
+      expect(entries[0][1]).toBeInstanceOf(CachedEntry);
+      expect(entries[1][1]).toBeInstanceOf(CachedEntry);
+      expect(entries[2][1]).toBeInstanceOf(CachedEntry);
+      expect(entries).toEqual([
+        [
+          "github",
+          expect.objectContaining({ value: { id: "github", name: "Github" } }),
+        ],
+        ["npm", expect.objectContaining({ value: { id: "npm", name: "NPM" } })],
+        [
+          "circleci",
+          expect.objectContaining({
+            value: { id: "circleci", name: "CircleCI" },
+          }),
+        ],
       ]);
 
       await wait(20);
       expect(worker.entries()).toEqual([
-        ["npm", { id: "npm", name: "NPM" }],
-        ["circleci", { id: "circleci", name: "CircleCI" }],
+        ["npm", expect.objectContaining({ value: { id: "npm", name: "NPM" } })],
+        [
+          "circleci",
+          expect.objectContaining({
+            value: { id: "circleci", name: "CircleCI" },
+          }),
+        ],
       ]);
     });
   });
@@ -1742,41 +1770,6 @@ describe("Worker", () => {
     });
   });
 
-  describe("forEachEntry", () => {
-    test("should only iterate list of valid entries", async () => {
-      let values: Entry<string, MockResultObject>[] = [];
-      const worker = new Worker<MockResultObject, string>(levelTwo, {
-        name: "customer",
-        worker: dataStore.customerFetch,
-        ttl: 1000,
-      });
-
-      worker.prefill([
-        { id: "github", value: { id: "github", name: "Github" }, ttl: 10 },
-        { id: "npm", value: { id: "npm", name: "NPM" }, ttl: 1000 },
-        {
-          id: "circleci",
-          value: { id: "circleci", name: "CircleCI" },
-          ttl: 1000,
-        },
-      ]);
-      worker.forEachEntry((value) => values.push(value));
-      expect(values).toEqual([
-        expect.objectContaining({ id: "github" }),
-        expect.objectContaining({ id: "npm" }),
-        expect.objectContaining({ id: "circleci" }),
-      ]);
-
-      await wait(20);
-      values = [];
-      worker.forEachEntry((value) => values.push(value));
-      expect(values).toEqual([
-        expect.objectContaining({ id: "npm" }),
-        expect.objectContaining({ id: "circleci" }),
-      ]);
-    });
-  });
-
   describe("prefill", () => {
     test("should add entries into the cache", () => {
       expect(worker.has("github")).toStrictEqual(false);
@@ -1803,12 +1796,20 @@ describe("Worker", () => {
         { id: "github", value: { id: "github", name: "Github" }, ttl: 20 },
         { id: "npm", value: { id: "npm", name: "NPM" }, ttl: 1000 },
       ]);
-      expect(worker.peek("github")).toEqual({ id: "github", name: "Github" });
-      expect(worker.peek("npm")).toEqual({ id: "npm", name: "NPM" });
+      expect(worker.peek("github")).toBeInstanceOf(CachedEntry);
+      expect(worker.peek("npm")).toBeInstanceOf(CachedEntry);
+      expect(worker.peek("github")).toEqual(
+        expect.objectContaining({ value: { id: "github", name: "Github" } })
+      );
+      expect(worker.peek("npm")).toEqual(
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } })
+      );
 
       await wait(30);
       expect(worker.peek("github")).toEqual(undefined);
-      expect(worker.peek("npm")).toEqual({ id: "npm", name: "NPM" });
+      expect(worker.peek("npm")).toEqual(
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } })
+      );
     });
   });
 
@@ -1829,17 +1830,25 @@ describe("Worker", () => {
           ttl: 1000,
         },
       ]);
-      expect(worker.peekMulti(["github", "npm", "circleci"])).toEqual([
-        { id: "github", name: "Github" },
-        { id: "npm", name: "NPM" },
-        { id: "circleci", name: "CircleCI" },
+      const values = worker.peekMulti(["github", "npm", "circleci"]);
+      expect(values[0]).toBeInstanceOf(CachedEntry);
+      expect(values[1]).toBeInstanceOf(CachedEntry);
+      expect(values[2]).toBeInstanceOf(CachedEntry);
+      expect(values).toEqual([
+        expect.objectContaining({ value: { id: "github", name: "Github" } }),
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } }),
+        expect.objectContaining({
+          value: { id: "circleci", name: "CircleCI" },
+        }),
       ]);
 
       await wait(20);
       expect(worker.peekMulti(["github", "npm", "circleci"])).toEqual([
         undefined,
-        { id: "npm", name: "NPM" },
-        { id: "circleci", name: "CircleCI" },
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } }),
+        expect.objectContaining({
+          value: { id: "circleci", name: "CircleCI" },
+        }),
       ]);
     });
   });

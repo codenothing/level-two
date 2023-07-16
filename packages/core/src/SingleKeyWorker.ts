@@ -1,6 +1,7 @@
 import EventEmitter from "events";
 import { Worker } from "./Worker";
 import { Entry } from "./Entry";
+import { CachedEntry } from "./CachedEntry";
 
 // Worker specific events
 export interface SingleKeyWorker<ResultType> {
@@ -215,7 +216,7 @@ export class SingleKeyWorker<
   /**
    * Returns local cache entry if it exists, undefined if it does not
    */
-  public peek(): ResultType | undefined {
+  public peek(): CachedEntry<SingleKeyIdentifierType, ResultType> | undefined {
     return this.worker.peek(this.id);
   }
 }
