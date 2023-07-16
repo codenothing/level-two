@@ -1,4 +1,5 @@
-import { LevelTwo, SingleKeyWorker } from "../src";
+import { Entry, LevelTwo, SingleKeyWorker } from "../src";
+import { CachedEntry } from "../src/CachedEntry";
 import {
   getMockedMessageBroker,
   getMockedRemoteCache,
@@ -103,6 +104,32 @@ describe("SingleKeyWorker", () => {
     expect(fetchProcess).toHaveBeenCalledTimes(2);
   });
 
+  test("getEntry should return entry wrapped value", async () => {
+    fetchProcess.mockResolvedValue(undefined);
+
+    let entry = await worker.getEntry();
+    expect(entry).toBeInstanceOf(Entry);
+    expect(entry.id).toStrictEqual("tokens");
+    expect(entry.value).toBeUndefined();
+    expect(remoteCache.get).toHaveBeenCalledTimes(1);
+    expect(fetchProcess).toHaveBeenCalledTimes(1);
+
+    // Confirm call is successful when there is a value
+    fetchProcess.mockResolvedValue({
+      github: "abc123",
+      npm: "xyz456",
+    });
+    entry = await worker.getEntry();
+    expect(entry).toBeInstanceOf(Entry);
+    expect(entry.id).toStrictEqual("tokens");
+    expect(entry.value).toEqual({
+      github: "abc123",
+      npm: "xyz456",
+    });
+    expect(remoteCache.get).toHaveBeenCalledTimes(2);
+    expect(fetchProcess).toHaveBeenCalledTimes(2);
+  });
+
   test("upsert should skip locally cached entries and replace with new results", async () => {
     worker.prefill({ github: "abc123", npm: "xyz456" });
 
@@ -113,7 +140,9 @@ describe("SingleKeyWorker", () => {
     expect(await worker.upsert()).toEqual({ github: "def789", npm: "tuv789" });
     expect(remoteCache.get).toHaveBeenCalledTimes(1);
     expect(fetchProcess).not.toHaveBeenCalled();
-    expect(worker.peek()).toEqual({ github: "def789", npm: "tuv789" });
+    expect(worker.peek()).toEqual(
+      expect.objectContaining({ value: { github: "def789", npm: "tuv789" } })
+    );
 
     // get method should use the new cached entries
     (remoteCache.get as jest.Mock).mockClear();
@@ -135,7 +164,9 @@ describe("SingleKeyWorker", () => {
     });
     expect(remoteCache.get).not.toHaveBeenCalled();
     expect(fetchProcess).toHaveBeenCalledTimes(1);
-    expect(worker.peek()).toEqual({ github: "ghi321", npm: "mno654" });
+    expect(worker.peek()).toEqual(
+      expect.objectContaining({ value: { github: "ghi321", npm: "mno654" } })
+    );
 
     // get method should use the new cached entries
     (remoteCache.get as jest.Mock).mockClear();
@@ -163,7 +194,9 @@ describe("SingleKeyWorker", () => {
   test("should set entry into both local and remote cache before publishing a distributed action", async () => {
     expect(worker.peek()).toEqual(undefined);
     await worker.set({ github: "abc123", npm: "xyz456" }, 1200);
-    expect(worker.peek()).toEqual({ github: "abc123", npm: "xyz456" });
+    expect(worker.peek()).toEqual(
+      expect.objectContaining({ value: { github: "abc123", npm: "xyz456" } })
+    );
     expect(remoteCache.set).toHaveBeenCalledTimes(1);
     expect(remoteCache.set).toHaveBeenLastCalledWith(`single-key-worker`, [
       {
@@ -253,15 +286,22 @@ describe("SingleKeyWorker", () => {
   test("prefill should override local cache", () => {
     expect(worker.peek()).toStrictEqual(undefined);
     worker.prefill({ github: "abc123", npm: "xyz456" });
-    expect(worker.peek()).toEqual({ github: "abc123", npm: "xyz456" });
+    expect(worker.peek()).toEqual(
+      expect.objectContaining({ value: { github: "abc123", npm: "xyz456" } })
+    );
     worker.prefill({ github: "abc654", npm: "xyz987" });
-    expect(worker.peek()).toEqual({ github: "abc654", npm: "xyz987" });
+    expect(worker.peek()).toEqual(
+      expect.objectContaining({ value: { github: "abc654", npm: "xyz987" } })
+    );
   });
 
   test("peek should return local cache data only", async () => {
     expect(worker.peek()).toStrictEqual(undefined);
     worker.prefill({ github: "abc123", npm: "xyz456" });
-    expect(worker.peek()).toEqual({ github: "abc123", npm: "xyz456" });
+    expect(worker.peek()).toBeInstanceOf(CachedEntry);
+    expect(worker.peek()).toEqual(
+      expect.objectContaining({ value: { github: "abc123", npm: "xyz456" } })
+    );
   });
 
   test("should be able to create multiple workers at once", async () => {

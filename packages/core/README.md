@@ -15,6 +15,12 @@ Review the list of supported extensions below for easy configuration of common b
 | [@level-two/kafka](https://www.npmjs.com/package/@level-two/kafka)         | Kafka extension for a message broker only      |
 | [@level-two/memcached](https://www.npmjs.com/package/@level-two/memcached) | Memcached extension for a cache only           |
 
+## Breaking Changes
+
+Starting with version `2.0.0`: Iterable, `peek`, `peekMulti`, `values`, `entries`, `forEach` all return `CachedEntry` wrapped result values instead of the `ResultValue` directly.
+
+Switching to a wrapped `CachedEntry` will allow for current and future expansion on utilities for metric tracking of entries.
+
 ## Usage
 
 ```ts
@@ -178,6 +184,10 @@ Shortcut method for batch fetching a single object. Any error is thrown instead 
 
 Shortcut method for batch fetching a single required object. Any error is thrown instead of returned, and exception is raised if no value is found
 
+### `getEntry(id: IdentifierType)`
+
+Shortcut method for batch fetching a single Entry wrapped value. Exceptions are returned, not raised.
+
 ### `getMulti(ids: IdentifierType[])`
 
 Gets a a list of values for the identifiers provided. First attempts to find values from the local cache, then falls back to remote cache if defined, and finally pulls from the worker process.
@@ -191,6 +201,12 @@ Similar to getMulti, fetches list of values for the identifiers provided, but ra
 ### `getRequiredMulti(ids: IdentifierType[])`
 
 Similar to getMulti, fetches list of values for the identifiers provided, but raises exceptions when values are not found for any id
+
+### `getEntryMulti(ids: IdentifierType[])`
+
+Similar to getMulti, gets a a list of Entry wrapped values for the identifiers provided. The "source" indicates at what point the value was retrieved from (local-cache, remote-cache, or worker)
+
+Exceptions are returned, not raised, and use the "error" source key
 
 ### `stream(ids: IdentifierType[], streamResultCallback: (id: IdentifierType, result: ResultType) => Promise<void>)`
 
@@ -272,7 +288,7 @@ Returns list of valid cache entry values in the cache.
 
 Returns list of valid cache entries in the cache.
 
-### `forEach(iter: (value: ResultType, id: IdentifierType) => void)`
+### `forEach(iter: (value: CachedEntry<IdentifierType, ResultType>, id: IdentifierType) => void)`
 
 Executes the provided function once per each valid id/value pair in the cache.
 
@@ -295,6 +311,50 @@ Deletes any expired (past stale) entries from the local cache, as well as any ex
 ### `clear()`
 
 Clears local caches of all entries.
+
+## Entry & CachedEntry
+
+The `Entry` and `CachedEntry` classes represent entry wrapped result values for metric tracking and viewing source of what level the data was fetched from
+
+### `id`
+
+Unique cache identifier
+
+### `createdAt`
+
+Timestamp of when the _local_ cache entry was created
+
+### `source`
+
+Source of where the value was fetched from
+
+### `value`
+
+Value of the cached entry. Optional for `Entry`, required for `CachedEntry`
+
+### `error`
+
+Optional exception that occurred during fetching of value
+
+### `staleAt`
+
+Timestamp in milliseconds of when the cache entry becomes stale (can still be used, just refreshed in the background)
+
+### `expiresAt`
+
+Timestamp in milliseconds of when the cache entry expires (can no longer be used)
+
+### `upsertedAt`
+
+Timestamp in milliseconds of when the cache
+
+### `get isStale()`
+
+Indicates if the entry is stale (can still be used, just past the ttl)
+
+### `get isExpired()`
+
+Indicates if the entry is still usable (past stale threshold)
 
 ## SingleKeyWorker
 

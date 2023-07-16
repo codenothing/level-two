@@ -56,11 +56,17 @@ export class MockRemoteCache implements RemoteCache {
     if (this.streamResponses) {
       for (const id of ids) {
         await wait();
-        earlyWrite(id, this.cache[`${worker}:${id}`]?.value);
+        if (this.cache[`${worker}:${id}`]?.expires > Date.now()) {
+          earlyWrite(id, this.cache[`${worker}:${id}`]?.value);
+        }
       }
     } else {
       await wait();
-      return ids.map((id) => this.cache[id]?.value);
+      return ids.map((id) => {
+        if (this.cache[`${worker}:${id}`]?.expires > Date.now()) {
+          return this.cache[`${worker}:${id}`]?.value;
+        }
+      });
     }
   }
 

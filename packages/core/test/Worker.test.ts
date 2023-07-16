@@ -1,4 +1,6 @@
 import { LevelTwo, Worker } from "../src";
+import { CachedEntry } from "../src/CachedEntry";
+import { Entry } from "../src/Entry";
 import {
   getMockedMessageBroker,
   getMockedRemoteCache,
@@ -138,6 +140,22 @@ describe("Worker", () => {
       await expect(worker.getRequired("github")).rejects.toThrow(
         `Missing values for 'github' in 'customer' worker`
       );
+    });
+  });
+
+  describe("getEntry", () => {
+    test("should proxy directly to the getEntryMulti service", async () => {
+      const batchSpy = jest.spyOn(worker, "getEntryMulti");
+
+      expect(await worker.getEntry(`github`)).toEqual(
+        expect.objectContaining({
+          id: "github",
+          source: "worker-fetch",
+          value: { id: "github", name: "Github" },
+        })
+      );
+      expect(batchSpy).toHaveBeenCalledTimes(1);
+      expect(batchSpy).toHaveBeenLastCalledWith(["github"]);
     });
   });
 
@@ -497,7 +515,13 @@ describe("Worker", () => {
           .spyOn((worker as any).burstValve, "batch")
           .mockImplementation(async (ids: any) => {
             if (ids[0] === "npm") {
-              return [{ id: "npm", name: "NPM" }];
+              return [
+                {
+                  id: "npm",
+                  source: "worker-fetch",
+                  value: { id: "npm", name: "NPM" },
+                },
+              ];
             }
 
             throw new Error(`Mock Batch Error`);
@@ -958,6 +982,89 @@ describe("Worker", () => {
       await expect(
         worker.getRequiredMulti([`github`, `circleci`, `npm`])
       ).rejects.toThrow(`Mock Fetcher Error`);
+    });
+  });
+
+  describe("getEntryMulti", () => {
+    test("should return values and the source of where they came from", async () => {
+      remoteCache.currentTime = Date.now();
+      await remoteCache.set(worker.name, [
+        {
+          id: "circleci",
+          value: { id: "circleci", name: "CircleCI" },
+          ttl: 15000,
+        },
+      ]);
+      worker.prefill([{ id: "npm", value: { id: "npm", name: "NPM" } }]);
+
+      const results = await worker.getEntryMulti([`github`, `circleci`, `npm`]);
+      expect(results[0]).toBeInstanceOf(Entry);
+      expect(results[1]).toBeInstanceOf(Entry);
+      expect(results[2]).toBeInstanceOf(Entry);
+      expect(results).toEqual([
+        expect.objectContaining({ id: "github", source: "worker-fetch" }),
+        expect.objectContaining({ id: "circleci", source: "remote-cache" }),
+        expect.objectContaining({ id: "npm", source: "local-cache" }),
+      ]);
+      expect(remoteCache.get).toHaveBeenCalledTimes(1);
+      expect(remoteCache.get).toHaveBeenLastCalledWith(
+        `customer`,
+        [`github`, `circleci`],
+        expect.any(Function)
+      );
+      expect(dataStore.customerFetch).toHaveBeenCalledTimes(1);
+      expect(dataStore.customerFetch).toHaveBeenLastCalledWith(
+        [`github`],
+        expect.any(Function)
+      );
+    });
+
+    test("should use cached results", async () => {
+      prefillWorker(worker);
+      expect(await worker.getEntryMulti([`github`, `npm`])).toEqual([
+        expect.objectContaining({
+          id: "github",
+          value: { id: "github", name: "Github" },
+        }),
+        expect.objectContaining({
+          id: "npm",
+          value: { id: "npm", name: "NPM" },
+        }),
+      ]);
+      expect(remoteCache.get).not.toHaveBeenCalled();
+      expect(dataStore.customerFetch).not.toHaveBeenCalled();
+    });
+
+    test("should return undefined if keys don't have values", async () => {
+      dataStore.customerFetch.mockResolvedValue(
+        new Map<string, MockResultObject>([
+          [`circleci`, { id: "circleci", name: "CircleCI" }],
+        ])
+      );
+
+      expect(await worker.getEntryMulti([`github`, `circleci`, `npm`])).toEqual(
+        [
+          expect.objectContaining({ id: "github", value: undefined }),
+          expect.objectContaining({
+            id: "circleci",
+            value: { id: "circleci", name: "CircleCI" },
+          }),
+          expect.objectContaining({ id: "npm", value: undefined }),
+        ]
+      );
+    });
+
+    test("should assign fetcher errors instead of throwing them", async () => {
+      const error = new Error(`Mock Fetcher Error`);
+      dataStore.customerFetch.mockRejectedValue(error);
+
+      expect(await worker.getEntryMulti([`github`, `circleci`, `npm`])).toEqual(
+        [
+          expect.objectContaining({ id: "github", value: undefined, error }),
+          expect.objectContaining({ id: "circleci", value: undefined, error }),
+          expect.objectContaining({ id: "npm", value: undefined, error }),
+        ]
+      );
     });
   });
 
@@ -1563,16 +1670,25 @@ describe("Worker", () => {
           ttl: 1000,
         },
       ]);
-      expect(worker.values()).toEqual([
-        { id: "github", name: "Github" },
-        { id: "npm", name: "NPM" },
-        { id: "circleci", name: "CircleCI" },
+
+      const values = worker.values();
+      expect(values[0]).toBeInstanceOf(CachedEntry);
+      expect(values[1]).toBeInstanceOf(CachedEntry);
+      expect(values[2]).toBeInstanceOf(CachedEntry);
+      expect(values).toEqual([
+        expect.objectContaining({ value: { id: "github", name: "Github" } }),
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } }),
+        expect.objectContaining({
+          value: { id: "circleci", name: "CircleCI" },
+        }),
       ]);
 
       await wait(20);
       expect(worker.values()).toEqual([
-        { id: "npm", name: "NPM" },
-        { id: "circleci", name: "CircleCI" },
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } }),
+        expect.objectContaining({
+          value: { id: "circleci", name: "CircleCI" },
+        }),
       ]);
     });
   });
@@ -1594,16 +1710,34 @@ describe("Worker", () => {
           ttl: 1000,
         },
       ]);
-      expect(worker.entries()).toEqual([
-        ["github", { id: "github", name: "Github" }],
-        ["npm", { id: "npm", name: "NPM" }],
-        ["circleci", { id: "circleci", name: "CircleCI" }],
+
+      const entries = worker.entries();
+      expect(entries[0][1]).toBeInstanceOf(CachedEntry);
+      expect(entries[1][1]).toBeInstanceOf(CachedEntry);
+      expect(entries[2][1]).toBeInstanceOf(CachedEntry);
+      expect(entries).toEqual([
+        [
+          "github",
+          expect.objectContaining({ value: { id: "github", name: "Github" } }),
+        ],
+        ["npm", expect.objectContaining({ value: { id: "npm", name: "NPM" } })],
+        [
+          "circleci",
+          expect.objectContaining({
+            value: { id: "circleci", name: "CircleCI" },
+          }),
+        ],
       ]);
 
       await wait(20);
       expect(worker.entries()).toEqual([
-        ["npm", { id: "npm", name: "NPM" }],
-        ["circleci", { id: "circleci", name: "CircleCI" }],
+        ["npm", expect.objectContaining({ value: { id: "npm", name: "NPM" } })],
+        [
+          "circleci",
+          expect.objectContaining({
+            value: { id: "circleci", name: "CircleCI" },
+          }),
+        ],
       ]);
     });
   });
@@ -1662,12 +1796,20 @@ describe("Worker", () => {
         { id: "github", value: { id: "github", name: "Github" }, ttl: 20 },
         { id: "npm", value: { id: "npm", name: "NPM" }, ttl: 1000 },
       ]);
-      expect(worker.peek("github")).toEqual({ id: "github", name: "Github" });
-      expect(worker.peek("npm")).toEqual({ id: "npm", name: "NPM" });
+      expect(worker.peek("github")).toBeInstanceOf(CachedEntry);
+      expect(worker.peek("npm")).toBeInstanceOf(CachedEntry);
+      expect(worker.peek("github")).toEqual(
+        expect.objectContaining({ value: { id: "github", name: "Github" } })
+      );
+      expect(worker.peek("npm")).toEqual(
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } })
+      );
 
       await wait(30);
       expect(worker.peek("github")).toEqual(undefined);
-      expect(worker.peek("npm")).toEqual({ id: "npm", name: "NPM" });
+      expect(worker.peek("npm")).toEqual(
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } })
+      );
     });
   });
 
@@ -1688,17 +1830,25 @@ describe("Worker", () => {
           ttl: 1000,
         },
       ]);
-      expect(worker.peekMulti(["github", "npm", "circleci"])).toEqual([
-        { id: "github", name: "Github" },
-        { id: "npm", name: "NPM" },
-        { id: "circleci", name: "CircleCI" },
+      const values = worker.peekMulti(["github", "npm", "circleci"]);
+      expect(values[0]).toBeInstanceOf(CachedEntry);
+      expect(values[1]).toBeInstanceOf(CachedEntry);
+      expect(values[2]).toBeInstanceOf(CachedEntry);
+      expect(values).toEqual([
+        expect.objectContaining({ value: { id: "github", name: "Github" } }),
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } }),
+        expect.objectContaining({
+          value: { id: "circleci", name: "CircleCI" },
+        }),
       ]);
 
       await wait(20);
       expect(worker.peekMulti(["github", "npm", "circleci"])).toEqual([
         undefined,
-        { id: "npm", name: "NPM" },
-        { id: "circleci", name: "CircleCI" },
+        expect.objectContaining({ value: { id: "npm", name: "NPM" } }),
+        expect.objectContaining({
+          value: { id: "circleci", name: "CircleCI" },
+        }),
       ]);
     });
   });

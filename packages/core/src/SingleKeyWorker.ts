@@ -1,5 +1,7 @@
 import EventEmitter from "events";
 import { Worker } from "./Worker";
+import { Entry } from "./Entry";
+import { CachedEntry } from "./CachedEntry";
 
 // Worker specific events
 export interface SingleKeyWorker<ResultType> {
@@ -113,6 +115,16 @@ export class SingleKeyWorker<
   }
 
   /**
+   * Fetches single entry wrapped value for this single key worker, the "source"
+   * indicates at what point the value was retrieved from (local-cache, remote-cache, or worker)
+   *
+   * Exceptions are returned, not raised, and use the "error" source key
+   */
+  public async getEntry(): Promise<Entry<SingleKeyIdentifierType, ResultType>> {
+    return (await this.worker.getEntryMulti([this.id]))[0];
+  }
+
+  /**
    * Force updates local cache with value saved in remote cache or fetcher process
    *
    * @param skipRemoteCache Skip remote cache, go directly to fetcher process for cache update
@@ -204,7 +216,7 @@ export class SingleKeyWorker<
   /**
    * Returns local cache entry if it exists, undefined if it does not
    */
-  public peek(): ResultType | undefined {
+  public peek(): CachedEntry<SingleKeyIdentifierType, ResultType> | undefined {
     return this.worker.peek(this.id);
   }
 }
