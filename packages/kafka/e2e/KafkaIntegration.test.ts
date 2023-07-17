@@ -89,7 +89,7 @@ describe("KafkaIntegration", () => {
         });
       }),
     ]);
-    expect(worker2.peek("github")).toEqual({
+    expect(worker2.peek("github")?.value).toEqual({
       id: "github",
       name: "Github Revised",
     });

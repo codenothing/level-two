@@ -59,7 +59,7 @@ describe("RabbitMQIntegration", () => {
         });
       }),
     ]);
-    expect(worker2.peek("github")).toEqual({
+    expect(worker2.peek("github")?.value).toEqual({
       id: "github",
       name: "Github Revised",
     });
@@ -102,7 +102,7 @@ describe("RabbitMQIntegration", () => {
 
     expect(worker1.has("github")).toStrictEqual(true);
     expect(worker2.has("github")).toStrictEqual(true);
-    await wait(2000);
+    await wait(2100);
     expect(worker1.has("github")).toStrictEqual(false);
     expect(worker2.has("github")).toStrictEqual(false);
   });

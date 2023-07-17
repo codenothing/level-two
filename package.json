@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "devDependencies": {
-    "lerna": "^6.1.0"
+    "lerna": "^7.1.4"
   },
   "scripts": {
     "lint": "lerna run lint",
