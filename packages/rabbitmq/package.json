@@ -1,6 +1,6 @@
 {
   "name": "@level-two/rabbitmq",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "RabbitMQ broadcast extension of level two",
   "author": "Corey Hart <corey@codenothing.com>",
   "main": "./dist/index.js",
@@ -45,7 +45,7 @@
     "typescript": "^5.1.6"
   },
   "dependencies": {
-    "@level-two/core": "^1.2.0",
+    "@level-two/core": "^2.0.0",
     "@types/amqplib": "^0.10.1",
     "amqplib": "^0.10.3"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@level-two/kafka",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Kafka broadcast extension for LevelTwo",
   "author": "Corey Hart <corey@codenothing.com>",
   "main": "./dist/index.js",
@@ -45,7 +45,7 @@
     "typescript": "^5.1.6"
   },
   "dependencies": {
-    "@level-two/core": "^1.2.0",
+    "@level-two/core": "^2.0.0",
     "kafkajs": "^2.2.4"
   },
   "publishConfig": {

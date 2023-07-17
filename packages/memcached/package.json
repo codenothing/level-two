@@ -1,6 +1,6 @@
 {
   "name": "@level-two/memcached",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Memcached cache extension of level two",
   "author": "Corey Hart <corey@codenothing.com>",
   "main": "./dist/index.js",
@@ -48,7 +48,7 @@
     "typescript": "^5.1.6"
   },
   "dependencies": {
-    "@level-two/core": "^1.2.0",
+    "@level-two/core": "^2.0.0",
     "@types/memcached": "^2.2.7",
     "memcached": "^2.2.2"
   },
