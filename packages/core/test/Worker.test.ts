@@ -264,6 +264,41 @@ describe("Worker", () => {
       );
     });
 
+    test("should skip remote cache when configured to", async () => {
+      const worker = new Worker<MockResultObject, string>(levelTwo, {
+        name: "customer",
+        worker: dataStore.customerFetch,
+        ttl: 30,
+        skipRemoteCache: true,
+      });
+
+      expect(await worker.get("github")).toEqual({
+        id: "github",
+        name: "Github",
+      });
+      expect(remoteCache.get).not.toHaveBeenCalled();
+      expect(remoteCache.set).not.toHaveBeenCalled();
+      expect(dataStore.customerFetch).toHaveBeenCalledTimes(1);
+      expect(dataStore.customerFetch).toHaveBeenLastCalledWith(
+        [`github`],
+        expect.any(Function)
+      );
+
+      await wait(50);
+
+      expect(await worker.get("github")).toEqual({
+        id: "github",
+        name: "Github",
+      });
+      expect(remoteCache.get).not.toHaveBeenCalled();
+      expect(remoteCache.set).not.toHaveBeenCalled();
+      expect(dataStore.customerFetch).toHaveBeenCalledTimes(2);
+      expect(dataStore.customerFetch).toHaveBeenLastCalledWith(
+        [`github`],
+        expect.any(Function)
+      );
+    });
+
     describe("localCache", () => {
       // Make cache fetching instant
       beforeEach(() => {
