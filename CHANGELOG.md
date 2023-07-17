@@ -1,5 +1,18 @@
 # Change Log
 
+## v2.0.0
+
+- [#11](https://github.com/codenothing/level-two/pull/11) Upgrading all dependencies
+- [#10](https://github.com/codenothing/level-two/pull/10) skipRemoteCache: Configure workers to skip remote-cache binding
+- [#9](https://github.com/codenothing/level-two/pull/9) getEntry & getEntryMulti: Fetching meta information along with a cached values
+- [#8](https://github.com/codenothing/level-two/pull/8) SingleKeyWorker: Cache worker for a single key entry
+
+### Breaking Changes
+
+Starting with version `2.0.0`: Iterable, `peek`, `peekMulti`, `values`, `entries`, `forEach` all return `CachedEntry` wrapped result values instead of the `ResultValue` directly.
+
+Switching to a wrapped `CachedEntry` will allow for current and future expansion on utilities for metric tracking of entries.
+
 ## v1.2.0
 
 - [#6](https://github.com/codenothing/level-two/pull/6) getUnsafeMulti: Getting results only, throwing any errors
